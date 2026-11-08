@@ -3715,6 +3715,7 @@ dependencies = [
  "objc2-core-graphics",
  "objc2-foundation 0.3.2",
  "objc2-quartz-core 0.3.2",
+ "rawmakase-ai",
  "rawmakase-cancel",
  "rawmakase-catalog",
  "rawmakase-ctl",
@@ -3747,6 +3748,23 @@ dependencies = [
  "windows-sys 0.61.2",
  "winit",
  "winresource",
+]
+
+[[package]]
+name = "rawmakase-ai"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "image",
+ "rawmakase-cancel",
+ "rawmakase-decode",
+ "rawmakase-engine",
+ "rawmakase-inference",
+ "rawmakase-model",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "ureq",
 ]
 
 [[package]]

@@ -1,0 +1,32 @@
+[package]
+name = "rawmakase-ai"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "AI Denoise's service and the installer of the models RAWmakase runs, apart from any window"
+license.workspace = true
+repository = "https://github.com/pch/rawmakase"
+
+# The stand-in model and photos the app's tests run AI Denoise with.
+[features]
+test-support = []
+
+[dependencies]
+rawmakase-cancel = { path = "../rawmakase-cancel", version = "0.1.0" }
+rawmakase-decode = { path = "../rawmakase-decode", version = "0.1.0" }
+rawmakase-engine = { path = "../rawmakase-engine", version = "0.1.0" }
+rawmakase-inference = { path = "../rawmakase-inference", version = "0.1.0" }
+rawmakase-model = { path = "../rawmakase-model", version = "0.1.0" }
+anyhow.workspace = true
+sha2.workspace = true
+ureq.workspace = true
+# The `rawmakase denoise` development command's report and comparison images.
+image.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+
+[dev-dependencies]
+rawmakase-decode = { path = "../rawmakase-decode", version = "0.1.0", features = ["test-support"] }
+
+[lints]
+workspace = true

@@ -10,7 +10,7 @@ repository = "https://github.com/pch/rawmakase"
 # The control protocol and its command-line client build on their own, without
 # the app's GUI, GPU or native libraries.
 [workspace]
-members = ["crates/rawmakase-cancel", "crates/rawmakase-catalog", "crates/rawmakase-decode", "crates/rawmakase-edit-session", "crates/rawmakase-engine", "crates/rawmakase-export", "crates/rawmakase-fs", "crates/rawmakase-inference", "crates/rawmakase-interop", "crates/rawmakase-model", "crates/rawmakase-protocol", "crates/rawmakase-raw", "crates/rawmakase-remote", "crates/rawmakase-tiff", "tools/rawmakase-ctl"]
+members = ["crates/rawmakase-ai", "crates/rawmakase-cancel", "crates/rawmakase-catalog", "crates/rawmakase-decode", "crates/rawmakase-edit-session", "crates/rawmakase-engine", "crates/rawmakase-export", "crates/rawmakase-fs", "crates/rawmakase-inference", "crates/rawmakase-interop", "crates/rawmakase-model", "crates/rawmakase-protocol", "crates/rawmakase-raw", "crates/rawmakase-remote", "crates/rawmakase-tiff", "tools/rawmakase-ctl"]
 
 # What every crate of the workspace shares. CI and `make check` read the minimum
 # Rust version from the `rust-version` line here.
@@ -55,11 +55,15 @@ serde_json = "1"
 sha2 = "0.11"
 tempfile = "3"
 tiff = "0.11.3"
+# The HTTP client behind fastframe-update and the model downloads; rustls with
+# bundled roots needs no system TLS library.
+ureq = { version = "3.4", default-features = false, features = ["rustls"] }
 toml = { version = "1", default-features = false, features = ["parse", "serde", "std"] }
 unicode-normalization = "0.1"
 wgpu = { version = "30", default-features = false, features = ["wgsl"] }
 
 [dependencies]
+rawmakase-ai = { path = "crates/rawmakase-ai", version = "0.1.0" }
 rawmakase-cancel = { path = "crates/rawmakase-cancel", version = "0.1.0" }
 rawmakase-catalog = { path = "crates/rawmakase-catalog", version = "0.1.0" }
 rawmakase-decode = { path = "crates/rawmakase-decode", version = "0.1.0" }
@@ -100,7 +104,7 @@ log = "0.4"
 rfd = "0.17.2"
 # The HTTP client behind fastframe-update; rustls with bundled roots needs no
 # system TLS library.
-ureq = { version = "3.4", default-features = false, features = ["rustls"] }
+ureq.workspace = true
 # Lensfun's database comes as a .tar.bz2 (lensfun_install): both read in pure Rust,
 # no libbz2; tar without extended attributes, nothing is unpacked to disk by it.
 bzip2-rs = "0.1"
@@ -157,6 +161,7 @@ windows-core = "0.62"
 
 # The model's fixtures, for the app's tests.
 [dev-dependencies]
+rawmakase-ai = { path = "crates/rawmakase-ai", version = "0.1.0", features = ["test-support"] }
 rawmakase-catalog = { path = "crates/rawmakase-catalog", version = "0.1.0", features = ["test-support"] }
 rawmakase-decode = { path = "crates/rawmakase-decode", version = "0.1.0", features = ["test-support"] }
 rawmakase-edit-session = { path = "crates/rawmakase-edit-session", version = "0.1.0", features = ["test-support"] }
