@@ -123,23 +123,9 @@ pub(in crate::app) enum Ruler {
     },
 }
 
-/// Shortest Straighten ruler, in points, that sets an angle: a click or a slip of the
-/// pointer is not a line.
-pub(in crate::app) const MIN_RULER: f32 = 10.;
-
-/// The Straighten angle that makes the ruler drawn from `from` to `to` on the photo as
-/// shown level or, when it is nearer upright, plumb; `current` is the angle the photo is
-/// shown at. None for a ruler too short to go by. Positions are in screen points, y down.
+/// [`crate::model::transform::ruler_angle`] for a ruler drawn on the screen.
 pub(in crate::app) fn ruler_angle(from: Pos2, to: Pos2, current: f32) -> Option<f32> {
-    let d = to - from;
-    if d.length() < MIN_RULER {
-        return None;
-    }
-    // The ruler's angle, clockwise from level, folded to within a quarter turn of it.
-    let angle = d.y.atan2(d.x).to_degrees();
-    let off = (angle + 45.).rem_euclid(90.) - 45.;
-    // Straighten turns the photo clockwise, so turning it back by `off` levels the line.
-    Some((current - off).clamp(-45., 45.))
+    crate::model::transform::ruler_angle([from.x, from.y], [to.x, to.y], current)
 }
 
 /// The crop with its width and height swapped (X), as large as fits on the photo and
