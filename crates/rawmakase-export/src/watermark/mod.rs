@@ -442,6 +442,17 @@ fn same_file(a: &Path, b: &Path) -> bool {
 }
 
 /// Saved presets, by name.
+/// The watermark named in Export's settings: a saved preset, or the Simple
+/// Copyright Watermark, whose text comes from each photo at export.
+pub fn named(name: &str) -> Option<Watermark> {
+    if name == SIMPLE_COPYRIGHT {
+        return Some(Watermark {
+            name: SIMPLE_COPYRIGHT.into(),
+            ..Default::default()
+        });
+    }
+    presets().into_iter().find(|w| w.name == name)
+}
 pub fn presets() -> Vec<Watermark> {
     presets_in(&dir())
 }
