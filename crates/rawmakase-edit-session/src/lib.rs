@@ -1,5 +1,6 @@
 //! The edit of the photo open in Develop, apart from the window that shows it:
 //! its History and whether it still needs saving.
+pub mod before_after;
 pub mod history;
 pub mod save_state;
 
