@@ -42,7 +42,7 @@ pub use rawmakase_ai::ai_denoise;
 // File formats and presets over the model, and which edit a photo develops with
 // (crates/rawmakase-interop).
 pub use rawmakase_interop::{
-    edits, exif, export_settings, jpeg, lr_develop, presets, raw_defaults, xmp,
+    bulk_import, edits, exif, export_settings, jpeg, lr_develop, presets, raw_defaults, xmp,
 };
 pub(crate) use rawmakase_model::time;
 pub use rawmakase_model::{
