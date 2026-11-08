@@ -362,6 +362,20 @@ pub fn bitmap_refs(groups: &[MaskGroup]) -> impl Iterator<Item = (&str, u32, u32
             _ => None,
         })
 }
+/// Duplicates mask `index` as the next mask, as Lightroom's Duplicate
+/// does: a named mask's copy is named "… copy". Returns the copy's index;
+/// `None` when there is no such mask or no room for another.
+pub fn duplicate(groups: &mut Vec<MaskGroup>, index: usize) -> Option<usize> {
+    if groups.len() >= MAX_GROUPS {
+        return None;
+    }
+    let mut copy = groups.get(index)?.clone();
+    if !copy.name.is_empty() {
+        copy.name.push_str(" copy");
+    }
+    groups.insert(index + 1, copy);
+    Some(index + 1)
+}
 pub fn validate(groups: &[MaskGroup]) -> Result<()> {
     ensure!(groups.len() <= MAX_GROUPS, "Too many masks");
     groups.iter().try_for_each(MaskGroup::validate)
@@ -370,6 +384,22 @@ pub fn validate(groups: &[MaskGroup]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_duplicate_follows_its_mask_and_a_named_one_says_copy() {
+        let named = MaskGroup {
+            name: "Sky".into(),
+            ..MaskGroup::default()
+        };
+        let mut groups = vec![MaskGroup::default(), named];
+        assert_eq!(duplicate(&mut groups, 1), Some(2));
+        assert_eq!(groups[2].name, "Sky copy");
+        assert_eq!(duplicate(&mut groups, 0), Some(1));
+        assert_eq!(groups[1].name, "", "an unnamed mask's copy stays unnamed");
+        assert_eq!(duplicate(&mut groups, 9), None);
+        groups.resize(MAX_GROUPS, MaskGroup::default());
+        assert_eq!(duplicate(&mut groups, 0), None, "no room");
+    }
 
     #[test]
     fn masks_keep_their_stored_form() {
