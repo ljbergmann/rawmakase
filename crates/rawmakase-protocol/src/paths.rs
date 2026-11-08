@@ -13,7 +13,9 @@ pub fn data_dir() -> PathBuf {
         std::env::var_os("XDG_DATA_HOME"),
         &home(),
         cfg!(windows),
-        cfg!(target_os = "macos"),
+        // macOS's layout on iPadOS too, where HOME is the app's container
+        // with the same Library folders.
+        cfg!(target_vendor = "apple"),
     )
 }
 /// The layout behind [`data_dir`], with the environment and the platform
@@ -62,7 +64,9 @@ pub fn local_data_dir() -> PathBuf {
         std::env::var_os("XDG_DATA_HOME"),
         &home(),
         cfg!(windows),
-        cfg!(target_os = "macos"),
+        // macOS's layout on iPadOS too, where HOME is the app's container
+        // with the same Library folders.
+        cfg!(target_vendor = "apple"),
     )
 }
 /// The layout behind [`local_data_dir`], with the environment and the
