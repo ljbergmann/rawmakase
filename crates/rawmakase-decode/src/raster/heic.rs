@@ -33,9 +33,9 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 mod imageio;
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 use imageio::pixels;
 #[cfg(windows)]
 mod wic;
@@ -52,12 +52,12 @@ fn pixels(_: HeicFile) -> Result<Pixels> {
 }
 
 /// Whether this system can decode a HEIC's pixels, or what to install:
-/// macOS can; Windows' extensions are found only by decoding; elsewhere,
-/// libheif with its HEVC decoder.
+/// macOS and iPadOS can, through ImageIO; Windows' extensions are found only
+/// by decoding; elsewhere, libheif with its HEVC decoder.
 pub(super) fn decoder() -> std::result::Result<(), String> {
     #[cfg(all(unix, not(target_vendor = "apple")))]
     return libheif::available();
-    #[cfg(any(target_os = "macos", windows))]
+    #[cfg(any(target_vendor = "apple", windows))]
     return Ok(());
     #[cfg(not(any(unix, windows)))]
     Err("RAWmakase can't show HEIF images on this system".into())
@@ -300,7 +300,7 @@ impl HeicFile {
 
     /// The whole file, from the open file the header was read from, for a
     /// system decoder that reads it from memory.
-    #[cfg(any(target_os = "macos", all(unix, not(target_vendor = "apple"))))]
+    #[cfg(unix)]
     fn bytes(&mut self) -> Result<Vec<u8>> {
         use std::io::{Read, Seek, SeekFrom};
         let mut bytes = Vec::new();
