@@ -51,6 +51,9 @@ pub fn runtime_file_names() -> &'static [&'static str] {
         &["onnxruntime.dll"]
     } else if cfg!(target_os = "macos") {
         &["libonnxruntime.dylib"]
+    } else if cfg!(target_os = "ios") {
+        // Microsoft's iOS build, embedded in the app as a framework.
+        &["onnxruntime.framework/onnxruntime"]
     } else {
         &["libonnxruntime.so", "libonnxruntime.so.1"]
     }
@@ -70,6 +73,9 @@ pub fn runtime_search_dirs() -> Vec<PathBuf> {
     if cfg!(target_os = "macos") {
         // Contents/MacOS/rawmakase -> Contents/Frameworks
         dirs.insert(0, exe_dir.join("../Frameworks"));
+    } else if cfg!(target_os = "ios") {
+        // An iOS app's executable sits at its bundle's root, beside Frameworks.
+        dirs.insert(0, exe_dir.join("Frameworks"));
     } else if cfg!(target_os = "linux") {
         dirs.push(exe_dir.join("../lib/rawmakase"));
         dirs.push(exe_dir.join("../lib"));
