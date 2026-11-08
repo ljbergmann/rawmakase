@@ -129,7 +129,7 @@ for saving and turns on a switched-off panel.
 
 ## 8. History
 
-`describe` in `src/edit_session/history.rs` names a step from what changed. Add the
+`describe` in `crates/rawmakase-edit-session/src/history.rs` names a step from what changed. Add the
 field to the comparison for its panel, so a change to it reads as Lightroom names it
 ("Tone Curve").
 

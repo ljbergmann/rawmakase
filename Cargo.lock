@@ -3719,6 +3719,7 @@ dependencies = [
  "rawmakase-catalog",
  "rawmakase-ctl",
  "rawmakase-decode",
+ "rawmakase-edit-session",
  "rawmakase-engine",
  "rawmakase-export",
  "rawmakase-fs",
@@ -3812,6 +3813,14 @@ dependencies = [
  "windows",
  "windows-sys 0.61.2",
  "yuv",
+]
+
+[[package]]
+name = "rawmakase-edit-session"
+version = "0.1.0"
+dependencies = [
+ "rawmakase-interop",
+ "rawmakase-model",
 ]
 
 [[package]]
