@@ -158,7 +158,7 @@ impl Editor {
         {
             let at = to_image(pos);
             let selected = self.view.retouch.selected;
-            let spacing = self.view.retouch.size * 0.25;
+            let size = self.view.retouch.size;
             let aspect = map.frame().aspect();
             let moved = match &mut self.view.retouch.drag {
                 Drag::Dest(start, original) => {
@@ -173,16 +173,7 @@ impl Editor {
                     Some(op)
                 }
                 Drag::Stroke(points) => {
-                    let last = points[points.len() - 1];
-                    // Spacing in long-edge units, whatever the photo's aspect.
-                    let (dx, dy) = if aspect >= 1. {
-                        (at[0] - last[0], (at[1] - last[1]) / aspect)
-                    } else {
-                        ((at[0] - last[0]) * aspect, at[1] - last[1])
-                    };
-                    if dx.hypot(dy) >= spacing && points.len() < crate::model::retouch::MAX_POINTS {
-                        points.push(at);
-                    }
+                    crate::model::retouch::add_dab(points, at, size, aspect);
                     None
                 }
                 Drag::Manual => selected
@@ -294,7 +285,7 @@ impl Editor {
         if op.offset[0].is_nan() {
             op.offset = self
                 .automatic_source(&op, &[])
-                .unwrap_or([op.radius() * 3., 0.]);
+                .unwrap_or_else(|| op.fallback_offset());
         }
         self.document.edit.recipe_mut().add_retouch(op);
         let i = self.document.edit.recipe().retouch.len() - 1;
