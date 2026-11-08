@@ -11,9 +11,9 @@
 //!
 //! Reference View (see `reference`) is laid out as a side-by-side view, with the
 //! reference photo in Before's place, rendered in the same lane.
+use crate::app::Editor;
 use crate::app::develop::state::{Picture, TextureMode};
 use crate::app::ui::design::{radius, space, text};
-use crate::app::{Editor, history::Step};
 use crate::rendered::ClipOverlay;
 use crate::{camera_data::CameraImage, develop::Geometry, model::recipe::Recipe};
 use eframe::egui::{self, Color32, Pos2, Rect, Vec2};
@@ -224,29 +224,8 @@ impl BeforePreview {
     }
 }
 
-/// What a Before/After command does.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::app) enum Transfer {
-    /// Before's settings become the edit's, as one History step.
-    BeforeToAfter,
-    /// The edit's settings become Before's.
-    AfterToBefore,
-    /// Each takes the other's settings; the edit's change is one History step.
-    Swap,
-}
-
-/// Before takes the edit's crop and orientation, so both sides show the same part of
-/// the photo, as the full-frame Before always has.
-fn framed_like(mut before: Recipe, edit: &Recipe) -> Recipe {
-    before.crop = edit.crop;
-    before.rotation = edit.rotation;
-    before.flip_x = edit.flip_x;
-    before.flip_y = edit.flip_y;
-    before.straighten = edit.straighten;
-    // Whether that angle is Auto's goes with it.
-    before.straighten_auto = edit.straighten_auto;
-    before
-}
+pub(in crate::app) use rawmakase_edit_session::before_after::Transfer;
+use rawmakase_edit_session::before_after::framed_like;
 
 impl Editor {
     /// The settings Before shows: those copied to it, else the photo's starting
@@ -297,20 +276,16 @@ impl Editor {
     pub(in crate::app) fn transfer(&mut self, transfer: Transfer) {
         // Framed as the edit itself, never by a preset only hovered.
         let before = self.before_framed_by(self.document.edit.recipe());
-        let after = self.document.edit.recipe().clone();
-        let (step, edit) = match transfer {
-            Transfer::AfterToBefore => {
-                self.document.before = Some(after);
-                ("", None)
-            }
-            Transfer::BeforeToAfter => ("Copy Before Settings to After", Some(before)),
-            Transfer::Swap => {
-                self.document.before = Some(after);
-                ("Swap Before and After Settings", Some(before))
-            }
-        };
-        if let Some(edit) = edit.filter(|e| *e != *self.document.edit.recipe()) {
-            self.document.edit.name_next_step(Step::new(step, ""));
+        let transferred = rawmakase_edit_session::before_after::transfer(
+            transfer,
+            before,
+            self.document.edit.recipe(),
+        );
+        if let Some(before) = transferred.before {
+            self.document.before = Some(before);
+        }
+        if let Some((step, edit)) = transferred.edit {
+            self.document.edit.name_next_step(step);
             self.document.edit.replace(edit);
             self.ensure_analysis();
         }
