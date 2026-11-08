@@ -13,7 +13,7 @@ pub fn data_dir() -> PathBuf {
         std::env::var_os("XDG_DATA_HOME"),
         &home(),
         cfg!(windows),
-        cfg!(target_os = "macos"),
+        cfg!(target_vendor = "apple"),
     )
 }
 /// The layout behind [`data_dir`], with the environment and the platform
@@ -24,7 +24,7 @@ fn data_dir_in(
     xdg_data_home: Option<OsString>,
     home: &Path,
     windows: bool,
-    macos: bool,
+    apple: bool,
 ) -> PathBuf {
     data_dir
         .map(PathBuf::from)
@@ -37,7 +37,9 @@ fn data_dir_in(
                 .map(|p| PathBuf::from(p).join("RAWmakase"))
         })
         .unwrap_or_else(|| {
-            if macos {
+            if apple {
+                // macOS, and iPadOS, where HOME is the app's container with
+                // the same Library folders.
                 home.join("Library/Application Support/RAWmakase")
             } else if windows {
                 // XDG_DATA_HOME is not consulted on Windows.
@@ -67,14 +69,14 @@ mod tests {
 
     #[test]
     fn the_environment_override_wins_on_every_platform() {
-        for (windows, macos) in [(false, false), (true, false), (false, true)] {
+        for (windows, apple) in [(false, false), (true, false), (false, true)] {
             let dir = data_dir_in(
                 Some("D:/where/i/said".into()),
                 Some("C:/Users/me/AppData/Roaming".into()),
                 Some("/xdg".into()),
                 Path::new("/home/me"),
                 windows,
-                macos,
+                apple,
             );
             assert_eq!(dir, PathBuf::from("D:/where/i/said"));
         }

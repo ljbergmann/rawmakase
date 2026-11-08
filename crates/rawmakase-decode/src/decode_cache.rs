@@ -45,7 +45,7 @@ pub fn cache_dir() -> PathBuf {
         return PathBuf::from(local).join("RAWmakase").join("Cache");
     }
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    if cfg!(target_os = "macos") {
+    if cfg!(target_vendor = "apple") {
         return home.join("Library/Caches/RAWmakase");
     }
     std::env::var_os("XDG_CACHE_HOME")

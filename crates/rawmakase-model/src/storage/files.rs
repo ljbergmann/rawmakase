@@ -17,7 +17,7 @@ use rawmakase_protocol::paths::{home, xdg_data_home};
 /// when RAWMAKASE_DATA_DIR points elsewhere (a shared or synced folder), and
 /// Windows's local rather than roaming AppData.
 pub fn local_data_dir() -> PathBuf {
-    if cfg!(target_os = "macos") {
+    if cfg!(target_vendor = "apple") {
         home().join("Library/Application Support/RAWmakase")
     } else if cfg!(windows) {
         std::env::var_os("LOCALAPPDATA")
