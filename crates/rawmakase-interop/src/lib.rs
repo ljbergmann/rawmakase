@@ -8,6 +8,7 @@ use rawmakase_model::{
 #[cfg(test)]
 use rawmakase_model::{dng, optics};
 
+pub mod bulk_import;
 pub mod edits;
 pub mod exif;
 pub mod export_settings;
