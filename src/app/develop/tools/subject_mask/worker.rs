@@ -11,12 +11,12 @@ use crate::camera_data::CameraImage;
 use crate::model::masks::BitmapSource;
 use crate::model::recipe::Recipe;
 use crate::storage::bitmaps::Bitmap;
-use crate::storage::{FNV_OFFSET, fnv1a, mask_assets};
+use crate::storage::mask_assets;
 use eframe::egui;
+use rawmakase_ai::selection::{INPUT_EDGE, ModelId, input_key, load_options, prompt_key};
 use rawmakase_cancel::Cancel;
 use rawmakase_inference::{
-    Analysis, Coverage, InferenceError, LoadOptions, Prompt, RgbImage, SKY, SUBJECT, Session, Sky,
-    SkySession, Subject,
+    Analysis, Coverage, InferenceError, Prompt, RgbImage, Session, Sky, SkySession, Subject,
 };
 use rawmakase_remote::{ClientError, RemoteAnalysis, RemoteSession};
 use std::path::PathBuf;
@@ -26,10 +26,6 @@ use std::sync::{
     mpsc::{self, Sender},
 };
 use std::time::Duration;
-
-/// The longest side of the photo rendered for the model. The network looks at
-/// 1024 pixels; more only makes the stored raster larger.
-const INPUT_EDGE: u32 = 1280;
 
 /// A selection to make, as the photo and edit were when it was asked for.
 pub(super) struct Job {
@@ -376,35 +372,8 @@ fn remote_failure(error: ClientError) -> Failure {
     }
 }
 
-/// What the result was made from: the photo as the model saw it and the prompt.
-fn prompt_key(input: &str, what: &str, prompt: &Prompt) -> String {
-    let mut text = format!("{input}|{what}");
-    for p in &prompt.points {
-        text.push_str(&format!("|{:.4},{:.4},{}", p.x, p.y, p.positive));
-    }
-    if let Some(b) = prompt.bounds {
-        text.push_str(&format!("|{b:.4?}"));
-    }
-    format!("{:016x}", fnv1a(FNV_OFFSET, text.as_bytes()))
-}
-
 fn load(model: &std::path::Path) -> Result<Session, Failure> {
     Subject::load_with(model, &load_options()).map_err(failure)
-}
-
-fn load_options() -> LoadOptions {
-    let bundled = crate::model_install::runtime_dir();
-    let runtime_library = rawmakase_inference::runtime::runtime_file_names()
-        .iter()
-        .map(|name| bundled.join(name))
-        .find(|path| path.is_file());
-    LoadOptions {
-        runtime_library,
-        threads: None,
-        // Selections made on this computer run on its CPU, as before; the
-        // accelerators are the remote worker's concern.
-        provider: None,
-    }
 }
 
 fn failure(error: InferenceError) -> Failure {
@@ -418,12 +387,6 @@ fn failure(error: InferenceError) -> Failure {
     }
 }
 
-/// Which network a job's answer comes from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ModelId {
-    Subject,
-    Sky,
-}
 impl Action {
     /// Sky is the sky model's; everything else, clicks included, the subject models'.
     pub(super) fn model(&self) -> ModelId {
@@ -432,53 +395,6 @@ impl Action {
             _ => ModelId::Subject,
         }
     }
-}
-impl ModelId {
-    /// Its name, its weights' digest and the versions of its contract and processing.
-    fn identity(self) -> (&'static str, &'static str, u32, u32) {
-        match self {
-            Self::Subject => (
-                SUBJECT.id,
-                SUBJECT.files[1].sha256,
-                SUBJECT.version,
-                SUBJECT.processing_version,
-            ),
-            Self::Sky => (SKY.id, SKY.file.sha256, SKY.version, SKY.processing_version),
-        }
-    }
-    /// What a generated raster records as having made it.
-    pub(super) fn provenance(self) -> String {
-        let (id, digest, ..) = self.identity();
-        format!("{id}@{}", &digest[..16])
-    }
-}
-
-/// Identifies what the model was given: the pixels, the model and the versions of
-/// every step that shaped them. The same values execute the request.
-fn input_key(rgb: &RgbImage, model: ModelId) -> String {
-    let (id, digest, version, processing) = model.identity();
-    let header = [
-        rgb.width.to_le_bytes().as_slice(),
-        rgb.height.to_le_bytes().as_slice(),
-        id.as_bytes(),
-        digest.as_bytes(),
-        &version.to_le_bytes(),
-        &processing.to_le_bytes(),
-        &crate::develop::masks::SELECTION_INPUT_VERSION.to_le_bytes(),
-    ]
-    .concat();
-    let hash = |seed| fnv1a(fnv1a(seed, &header), &rgb.data);
-    format!("{:016x}{:016x}", hash(FNV_OFFSET), hash(0x84222325cbf29ce4))
-}
-
-/// Whether an ONNX Runtime library this copy can load is in a place it looks.
-pub(super) fn runtime_present() -> bool {
-    let names = rawmakase_inference::runtime::runtime_file_names();
-    let mut dirs = rawmakase_inference::runtime::runtime_search_dirs();
-    dirs.push(crate::model_install::runtime_dir());
-    dirs.iter()
-        .any(|dir| names.iter().any(|name| dir.join(name).is_file()))
-        || std::env::var_os(rawmakase_inference::RUNTIME_ENV).is_some_and(|v| !v.is_empty())
 }
 
 /// Where selections run, when the user has said they run elsewhere: the
@@ -554,25 +470,6 @@ mod tests {
             height: 1,
             data: vec![1, 2, 3, 4, 5, 6],
         }
-    }
-
-    #[test]
-    fn sky_and_subject_answers_never_share_a_key_or_a_provenance() {
-        let rgb = pixels();
-        assert_ne!(
-            input_key(&rgb, ModelId::Sky),
-            input_key(&rgb, ModelId::Subject)
-        );
-        assert!(
-            ModelId::Sky
-                .provenance()
-                .starts_with("upernet-convnext-base@")
-        );
-        assert!(
-            ModelId::Subject
-                .provenance()
-                .starts_with("sam2.1-hiera-small@")
-        );
     }
 
     #[test]

@@ -55,7 +55,7 @@ on it directly.)
 | `rawmakase-model` | What an edit is, as values: the recipe and its settings, camera and lens profiles, colour primitives, DNG hints, output buffers, file identity and storage helpers | The RAW decoders, the renderer, wgpu, the GUI |
 | `rawmakase-interop` | The file formats and presets over the model: XMP, Lightroom's Develop settings, presets, raw defaults, EXIF and JPEG, export settings, and which edit a photo develops with (`edits`) | The same |
 | `rawmakase-edit-session` | The edit of the photo open in Develop apart from the window (`edit_session`): its bounded History (named steps, one per gesture, saved with the edit) and save state | The RAW decoders, the renderer, the catalog, the GUI |
-| `rawmakase-ai` | AI Denoise's service (`ai_denoise`) and the model installer (`model_install`), shared by the app, its command line and other front ends | The catalog, export, the GUI |
+| `rawmakase-ai` | AI Denoise's service (`ai_denoise`), the model installer (`model_install`) and what a Subject, Background or Sky selection is given and records (`selection`: the input's size, the models' provenance, the input and prompt keys), shared by the app, its command line and other front ends | The catalog, export, the GUI |
 | `rawmakase-catalog` | The SQLite catalog, Lightroom catalog import, file operations, and the stored edit records `edits` resolves | The same |
 | `rawmakase-engine` | The renderer (`develop`): the CPU pipeline, which is the reference, and the GPU preview port | The RAW decoders, the catalog, the GUI |
 | `rawmakase-raw` | RAWmakase's own RAW decoders ([RAW decoding](raw-decoding.md)) | Everything but `rawmakase-tiff` and `rawmakase-cancel` |

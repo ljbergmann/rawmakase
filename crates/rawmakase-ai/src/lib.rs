@@ -3,7 +3,9 @@
 //!
 //! [`ai_denoise`] owns AI Denoise's queue, worker thread, cache identity and disk
 //! cache; [`model_install`] downloads and verifies the model packs it and the
-//! selection tools run. The models and ONNX Runtime are `rawmakase-inference`'s.
+//! selection tools run; [`selection`] is what a Subject, Background or Sky
+//! selection is given and records. The models and ONNX Runtime are
+//! `rawmakase-inference`'s.
 //! Neither module knows a window: the app's side of each stays in the app.
 
 // The modules below were written inside the app crate and reach these by the
@@ -15,3 +17,4 @@ use rawmakase_model::{camera_data, model, storage};
 
 pub mod ai_denoise;
 pub mod model_install;
+pub mod selection;
