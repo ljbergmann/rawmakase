@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 const SETTLE: Duration = Duration::from_millis(600);
 
 #[derive(Default)]
-pub(crate) enum SaveState {
+pub enum SaveState {
     #[default]
     Clean,
     Pending(Instant),
@@ -21,16 +21,16 @@ pub(crate) enum SaveState {
     Protected(String),
 }
 impl SaveState {
-    pub(crate) fn is_protected(&self) -> bool {
+    pub fn is_protected(&self) -> bool {
         matches!(self, Self::Protected(_))
     }
-    pub(crate) fn needs_save(&self) -> bool {
+    pub fn needs_save(&self) -> bool {
         matches!(
             self,
             Self::Pending(_) | Self::Saving { .. } | Self::Failed { .. }
         )
     }
-    pub(crate) fn mark_changed(&mut self) {
+    pub fn mark_changed(&mut self) {
         match self {
             Self::Protected(_) => {}
             Self::Saving { changed } => *changed = Some(Instant::now()),
@@ -41,7 +41,7 @@ impl SaveState {
     /// failed save's retry; the interface wakes then rather than polling. `None`
     /// once it is due: whatever still holds it back (a drag, a save in flight)
     /// wakes the interface itself when it ends.
-    pub(crate) fn due_in(&self) -> Option<Duration> {
+    pub fn due_in(&self) -> Option<Duration> {
         let left = match self {
             Self::Pending(at) => SETTLE.checked_sub(at.elapsed()),
             Self::Failed { retry_after, .. } => retry_after.checked_duration_since(Instant::now()),
@@ -49,22 +49,22 @@ impl SaveState {
         };
         left.filter(|left| !left.is_zero())
     }
-    pub(crate) fn ready(&self) -> bool {
+    pub fn ready(&self) -> bool {
         match self {
             Self::Pending(at) => at.elapsed() > SETTLE,
             Self::Failed { retry_after, .. } => Instant::now() >= *retry_after,
             _ => false,
         }
     }
-    pub(crate) fn saved(&mut self) {
+    pub fn saved(&mut self) {
         *self = Self::Clean;
     }
-    pub(crate) fn saving(&mut self) {
+    pub fn saving(&mut self) {
         *self = Self::Saving { changed: None };
     }
     /// A background save finished. Returns false when it no longer applies:
     /// the document was reloaded or its edits discarded meanwhile.
-    pub(crate) fn finished(&mut self, result: Result<(), String>) -> bool {
+    pub fn finished(&mut self, result: Result<(), String>) -> bool {
         let Self::Saving { changed } = *self else {
             return false;
         };
@@ -75,10 +75,10 @@ impl SaveState {
         }
         true
     }
-    pub(crate) fn protect(&mut self, reason: String) {
+    pub fn protect(&mut self, reason: String) {
         *self = Self::Protected(reason);
     }
-    pub(crate) fn failed(&mut self, error: String) {
+    pub fn failed(&mut self, error: String) {
         *self = Self::Failed {
             retry_after: Instant::now() + Duration::from_millis(600),
             error,
@@ -86,12 +86,12 @@ impl SaveState {
     }
     /// A save that failed is tried again at once, as after its file was
     /// found again.
-    pub(crate) fn retry_now(&mut self) {
+    pub fn retry_now(&mut self) {
         if let Self::Failed { retry_after, .. } = self {
             *retry_after = Instant::now();
         }
     }
-    pub(crate) fn message(&self) -> Option<&str> {
+    pub fn message(&self) -> Option<&str> {
         match self {
             Self::Failed { error, .. } | Self::Protected(error) => Some(error),
             _ => None,

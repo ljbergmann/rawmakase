@@ -29,9 +29,11 @@ flowchart TD
     ctl[rawmakase-ctl]
     remote[rawmakase-remote]
     inference[rawmakase-inference]
+    session[rawmakase-edit-session]
 
     app --> export & decode & catalog & engine & interop & model
-    app --> ctl & remote & inference & fs
+    app --> ctl & remote & inference & fs & session
+    session --> interop
     export --> decode & engine & interop
     decode --> engine & raw
     catalog --> interop & fs
@@ -50,6 +52,7 @@ on it directly.)
 | --- | --- | --- |
 | `rawmakase-model` | What an edit is, as values: the recipe and its settings, camera and lens profiles, colour primitives, DNG hints, output buffers, file identity and storage helpers | The RAW decoders, the renderer, wgpu, the GUI |
 | `rawmakase-interop` | The file formats and presets over the model: XMP, Lightroom's Develop settings, presets, raw defaults, EXIF and JPEG, export settings, and which edit a photo develops with (`edits`) | The same |
+| `rawmakase-edit-session` | The edit of the photo open in Develop apart from the window (`edit_session`): its bounded History (named steps, one per gesture, saved with the edit) and save state | The RAW decoders, the renderer, the catalog, the GUI |
 | `rawmakase-catalog` | The SQLite catalog, Lightroom catalog import, file operations, and the stored edit records `edits` resolves | The same |
 | `rawmakase-engine` | The renderer (`develop`): the CPU pipeline, which is the reference, and the GPU preview port | The RAW decoders, the catalog, the GUI |
 | `rawmakase-raw` | RAWmakase's own RAW decoders ([RAW decoding](raw-decoding.md)) | Everything but `rawmakase-tiff` and `rawmakase-cancel` |
@@ -101,7 +104,7 @@ between top-level modules (see [boundaries](#boundaries-to-preserve)).
 | `export` | JPEG, 16-bit TIFF and PNG encoding, selected EXIF with the colour space's ColorSpace and interoperability index, ICC embedding of the pixels' colour space (taken from the `ExportImage`, never from a second setting), the sRGB conversion of watermark colours, atomic output publication | `mod.rs`, `metadata.rs` |
 | `ids` | Typed catalog row ids (`PhotoId`, `FolderId`, `RootId`, `CollectionId`), stored and serialized as their integers; a leaf, so edit resolution and export use them below the catalog | `ids.rs` |
 | `metadata` | Photo metadata as values: descriptive fields (title, caption, copyright, creator, capture, location), keywords and camera settings; depends on nothing else | `metadata.rs` |
-| `edit_session` | The edit of the photo open in Develop apart from the window: its bounded History (named steps, one per gesture, saved with the edit) and save state; no egui | `history.rs`, `save_state.rs` |
+| `edit_session` | The edit of the photo open in Develop apart from the window: its bounded History (named steps, one per gesture, saved with the edit) and save state; no egui. In `crates/rawmakase-edit-session`, which the app re-exports | `history.rs`, `save_state.rs` |
 | `edits` | Which edit a photo develops with (saved, Lightroom or raw defaults), shared by Develop, Library previews, Sync and Export: `resolve` at once, or a `Start` chosen once and resolved later; callers keep their own error and warning policies. The catalog only reads the stored records. In `rawmakase-interop`, so export resolves edits without the catalog | `edits.rs` |
 | `catalog` | RAWmakase SQLite database, schema, photo/folder/collection models, edits, relinking, the default Creator and Copyright of photos added from folders (below the camera's own, which the app's reader finds, as the catalog can't reach the RAW decoders), Synchronize Folder's and Find on Disk's engine (`folder_sync`: scan, matching, apply, family digest; named apart from `app/library/sync.rs`, which is Sync Settings) and disposable preview cache | `schema.sql`, `models.rs`, `mod.rs`, `folder_sync.rs`, `preview_cache.rs` |
 | `catalog::db` | The catalog's one connection boundary: an opaque `Db` with checked reads, `snapshot` for consistent reads, `write` as the only way to write, and `with_lightroom` for import; statements are `Sql` (portable) or `SqliteSql` (Lightroom), shape-checked at compile time; values go through the catalog's own `ToValue`/`FromRow` (`catalog::value`) | `mod.rs`, `sql.rs` |
@@ -529,7 +532,7 @@ The library API is internal: the RAWmakase binary, its examples and its tests ar
 its only clients, so modules and functions change freely with them and nothing is
 kept for outside callers. `src/lib.rs` exports only the modules they use; the rest
 (`catalog_session`, `decode`, `demosaic`, `edit_session`, `platform`, `time`)
-are `pub(crate)`, and the desktop app exposes only `app::run`, so the
+are `pub(crate)` (`edit_session` as a re-export of its crate), and the desktop app exposes only `app::run`, so the
 compiler reports what in them nothing uses. The compatibility surface is the saved data: recipe and
 preset envelopes are versioned and migrated by `model::saved_format` (written as
 version 11, which releases before the one engine refuse, 12 for a recipe naming a

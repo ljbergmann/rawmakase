@@ -14,7 +14,8 @@
 //! This crate's own modules compose those APIs: [`app`] is the desktop editor,
 //! [`ai_denoise`] is AI Denoise's service, shared by the app and the command line,
 //! `model_install` installs the models it and the selection tools run,
-//! `edit_session` keeps an open photo's edits, history and saved state together,
+//! `edit_session` (crates/rawmakase-edit-session) keeps an open photo's edits,
+//! history and saved state together,
 //! `catalog_session` holds the open catalog, [`comparison`] provides
 //! reference-image validation and `platform` isolates OS integration.
 //!
@@ -50,7 +51,7 @@ pub mod app;
 pub(crate) mod catalog_session;
 pub mod comparison;
 pub mod diagnostics;
-pub(crate) mod edit_session;
+pub(crate) use rawmakase_edit_session as edit_session;
 pub mod lensfun_install;
 pub(crate) mod model_install;
 pub(crate) mod platform;

@@ -5,7 +5,6 @@ ai_denoise -> model_install
 app -> ai_denoise
 app -> catalog_session
 app -> diagnostics
-app -> edit_session
 app -> lensfun_install
 app -> model_install
 app -> platform
