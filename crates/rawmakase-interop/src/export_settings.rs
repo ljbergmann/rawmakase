@@ -838,13 +838,19 @@ impl ExportSettings {
             .flatten()
     }
     /// The settings saved at `path`, read as [`ExportSettings::load`] reads them.
-    #[cfg(any(test, feature = "test-support"))]
     pub fn load_file(path: &Path) -> Option<Self> {
         Self::load_from(path)
     }
+    /// Writes the settings to `path` as [`ExportSettings::save`] does.
+    pub fn save_file(&self, path: &Path) -> anyhow::Result<()> {
+        self.save_to(path)
+    }
     fn load_from(path: &Path) -> Option<Self> {
-        let saved: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+        Self::from_value(serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?)
+    }
+    /// Settings as saved (such as a preset's, kept elsewhere): what only a
+    /// later release knows is kept, to be written back as it was.
+    pub fn from_value(saved: serde_json::Value) -> Option<Self> {
         let later_format = saved
             .get("format")
             .filter(|format| Format::deserialize(*format).is_err())
@@ -869,6 +875,11 @@ impl ExportSettings {
         Some(settings)
     }
     fn save_to(&self, path: &Path) -> anyhow::Result<()> {
+        crate::storage::atomic_json(path, &self.to_value()?)
+    }
+    /// The settings as they are saved, a later release's choices written
+    /// back where these still stand in for them.
+    pub fn to_value(&self) -> anyhow::Result<serde_json::Value> {
         let mut saved = serde_json::to_value(self)?;
         // Still the stand-ins they were read as: the later release's choices.
         if let LaterFormat(Some(later)) = &self.later_format
@@ -891,7 +902,7 @@ impl ExportSettings {
         {
             saved["hdr"] = later.clone();
         }
-        crate::storage::atomic_json(path, &saved)
+        Ok(saved)
     }
     /// The chosen folder, before any subfolder; `None` until a specific
     /// folder is picked.

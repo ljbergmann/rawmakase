@@ -590,7 +590,7 @@ impl Editor {
         // Its names are made from what the scope has now.
         self.exports.read.cancel();
         let watermark = if settings.watermark {
-            match watermark_for(&settings.watermark_name) {
+            match crate::watermark::named(&settings.watermark_name) {
                 Some(w) => Some(w),
                 None => {
                     self.messages
@@ -904,19 +904,6 @@ fn to_show(exported: &[PathBuf]) -> Vec<PathBuf> {
         }
     }
     shown
-}
-
-/// The watermark named in the Export dialog: a saved preset, or the Simple
-/// Copyright Watermark, whose text comes from each photo at export.
-fn watermark_for(name: &str) -> Option<crate::watermark::Watermark> {
-    use crate::watermark::{SIMPLE_COPYRIGHT, Watermark, presets};
-    if name == SIMPLE_COPYRIGHT {
-        return Some(Watermark {
-            name: SIMPLE_COPYRIGHT.into(),
-            ..Default::default()
-        });
-    }
-    presets().into_iter().find(|w| w.name == name)
 }
 
 #[cfg(test)]
