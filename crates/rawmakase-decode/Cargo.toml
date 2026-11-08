@@ -48,7 +48,7 @@ tempfile.workspace = true
 
 # HEIC decoded by the system's ImageIO, drawn by CoreGraphics, in an
 # autorelease pool (objc2, the version the app builds).
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(target_vendor = "apple")'.dependencies]
 objc2.workspace = true
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes", "CFData", "CFDictionary", "CFNumber"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGBitmapContext", "CGColorSpace", "CGContext", "CGDataProvider", "CGImage"] }
