@@ -990,12 +990,11 @@ impl Editor {
                 .add_enabled(!full, egui::Button::new("Duplicate"))
                 .clicked()
             {
-                let mut copy = self.document.edit.recipe().masks[i].clone();
-                if !copy.name.is_empty() {
-                    copy.name.push_str(" copy");
+                let copy =
+                    crate::model::masks::duplicate(&mut self.document.edit.recipe_mut().masks, i);
+                if let Some(copy) = copy {
+                    self.view.masking.select(Some(copy), Some(0));
                 }
-                self.document.edit.recipe_mut().masks.insert(i + 1, copy);
-                self.view.masking.select(Some(i + 1), Some(0));
             }
             if ui
                 .button("Delete")
