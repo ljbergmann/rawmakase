@@ -6,7 +6,7 @@ use crate::app::develop::step_name::StepName;
 use crate::app::ui::design::{Tone, radius, text};
 use crate::app::ui::theme;
 use crate::app::ui::widgets::{set_edit_context, slider_with};
-use crate::model::point_color::{MAX_SWATCHES, PointColor};
+use crate::model::point_color::{MAX_SWATCHES, PointColor, SwatchRange, nearest_point};
 use crate::model::recipe::Recipe;
 use crate::{
     app::Module,
@@ -291,46 +291,18 @@ fn comparison(ui: &mut egui::Ui, swatch: &PointColor) {
 
 /// The Hue, Saturation and Luminance ranges, as four points each.
 fn ranges(ui: &mut egui::Ui, step: &mut StepName, swatch: &mut PointColor) {
-    let defaults = PointColor::sampled(swatch.source);
     let [h, s, v] = swatch.source;
     let hue = h / 6. * std::f32::consts::TAU;
     let window = crate::develop::point_color::HUE_WINDOW;
-    range_points(
-        ui,
-        step,
-        "Hue Range",
-        &mut swatch.hue_range,
-        Hold::InnerSpan,
-        defaults.hue_range,
-        &|t| hsv(hue + (t - 0.5) * 2. * window, s.max(0.5), v.max(0.5)),
-    );
-    range_points(
-        ui,
-        step,
-        "Sat Range",
-        &mut swatch.saturation_range,
-        Hold::Value(s),
-        defaults.saturation_range,
-        &|t| hsv(hue, t, v.max(0.5)),
-    );
-    range_points(
-        ui,
-        step,
-        "Lum Range",
-        &mut swatch.luminance_range,
-        Hold::Value(crate::develop::srgb_encode(v)),
-        defaults.luminance_range,
-        &|t| hsv(hue, s, crate::color::srgb_decode(t)),
-    );
-}
-
-/// What a range's inner points must keep, so Camera Raw accepts the swatch.
-#[derive(Clone, Copy)]
-enum Hold {
-    /// Some span between the inner points (the hue range).
-    InnerSpan,
-    /// The sampled value between the inner points.
-    Value(f32),
+    range_points(ui, step, swatch, SwatchRange::Hue, &|t| {
+        hsv(hue + (t - 0.5) * 2. * window, s.max(0.5), v.max(0.5))
+    });
+    range_points(ui, step, swatch, SwatchRange::Saturation, &|t| {
+        hsv(hue, t, v.max(0.5))
+    });
+    range_points(ui, step, swatch, SwatchRange::Luminance, &|t| {
+        hsv(hue, s, crate::color::srgb_decode(t))
+    });
 }
 
 /// One range: a gradient rail with the outer and inner points as handles. Dragging
@@ -338,14 +310,13 @@ enum Hold {
 fn range_points(
     ui: &mut egui::Ui,
     step: &mut StepName,
-    label: &str,
-    points: &mut [f32; 4],
-    hold: Hold,
-    default: [f32; 4],
+    swatch: &mut PointColor,
+    which: SwatchRange,
     color: &dyn Fn(f32) -> Color32,
 ) {
     let palette = theme::palette(ui.ctx());
-    let before = *points;
+    let label = which.label();
+    let before = swatch.range_points(which);
     ui.push_id(label, |ui| {
         let (row, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 26.), Sense::hover());
         ui.painter().text(
@@ -377,19 +348,20 @@ fn range_points(
         let response = ui.interact(area, ui.id().with("rail"), Sense::click_and_drag());
         let active = ui.id().with("active");
         if response.double_clicked() {
-            *points = default;
+            swatch.reset_range(which);
         } else if let Some(p) = response.interact_pointer_pos() {
             let t = egui::remap_clamp(p.x, rail.left()..=rail.right(), 0. ..=1.);
             if response.drag_started() || response.clicked() {
-                let handle = nearest(points, t);
+                let handle = nearest_point(&swatch.range_points(which), t);
                 ui.data_mut(|d| d.insert_temp(active, handle));
             }
             if (response.dragged() || response.clicked())
                 && let Some(handle) = ui.data(|d| d.get_temp::<usize>(active))
             {
-                move_point(points, handle, t, hold);
+                swatch.move_range_point(which, handle, t);
             }
         }
+        let points = swatch.range_points(which);
         let shape = [
             Pos2::new(x(points[0]), rail.bottom() + 5.),
             Pos2::new(x(points[1]), rail.top() - 5.),
@@ -414,39 +386,11 @@ fn range_points(
         }
         response.on_hover_text("Drag the outer or inner points · double-click to reset");
     });
-    if *points != before {
+    let points = swatch.range_points(which);
+    if points != before {
         let shown: Vec<String> = points.iter().map(|p| format!("{:.0}", p * 100.)).collect();
         step.name(format!("Point Color {label}"), shown.join(" / "));
     }
-}
-
-/// The handle a press at `t` takes: the nearest one; among handles on one spot, the
-/// last when the press is right of them, else the first.
-fn nearest(points: &[f32; 4], t: f32) -> usize {
-    let distance = |k: usize| (points[k] - t).abs();
-    let best = (0..4).map(distance).fold(f32::INFINITY, f32::min);
-    let tied: Vec<usize> = (0..4).filter(|k| distance(*k) - best < 1e-4).collect();
-    if t > points[tied[0]] {
-        tied[tied.len() - 1]
-    } else {
-        tied[0]
-    }
-}
-
-/// Moves point `k` to `t`, between its neighbours, keeping what `hold` asks of the
-/// inner points.
-fn move_point(points: &mut [f32; 4], k: usize, t: f32, hold: Hold) {
-    let lo = if k == 0 { 0. } else { points[k - 1] };
-    let hi = if k == 3 { 1. } else { points[k + 1] };
-    let mut t = t.clamp(lo, hi);
-    match (hold, k) {
-        (Hold::InnerSpan, 1) => t = t.min(points[2] - 0.01),
-        (Hold::InnerSpan, 2) => t = t.max(points[1] + 0.01),
-        (Hold::Value(v), 1) => t = t.min(v),
-        (Hold::Value(v), 2) => t = t.max(v),
-        _ => {}
-    }
-    points[k] = t.clamp(0., 1.);
 }
 
 /// A "Ranges" disclosure row.
@@ -492,30 +436,6 @@ fn display(p: [f32; 3]) -> Color32 {
     let rgb = crate::develop::mul(crate::camera_profiles::PRO_TO_RGB, p)
         .map(|v| (crate::develop::srgb_encode(v.clamp(0., 1.)) * 255.).round() as u8);
     Color32::from_rgb(rgb[0], rgb[1], rgb[2])
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn range_handles_keep_their_order_and_the_sampled_value() {
-        let mut p = [0., 0.4, 0.7, 1.];
-        move_point(&mut p, 1, 0.9, Hold::Value(0.55));
-        assert_eq!(p, [0., 0.55, 0.7, 1.]);
-        move_point(&mut p, 2, 0.1, Hold::Value(0.55));
-        assert_eq!(p, [0., 0.55, 0.55, 1.]);
-        move_point(&mut p, 0, 0.8, Hold::Value(0.55));
-        assert_eq!(p, [0.55, 0.55, 0.55, 1.]);
-        let mut hue = [0., 1. / 3., 2. / 3., 1.];
-        move_point(&mut hue, 1, 0.9, Hold::InnerSpan);
-        assert!(hue[1] < hue[2]);
-        // Stacked handles: a press right of them takes the last, left the first.
-        let stacked = [0., 0., 0.5, 1.];
-        assert_eq!(nearest(&stacked, 0.02), 1);
-        assert_eq!(nearest(&stacked, 0.), 0);
-        assert_eq!(nearest(&stacked, 0.7), 2);
-    }
 }
 
 #[cfg(test)]
