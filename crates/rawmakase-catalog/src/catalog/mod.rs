@@ -45,6 +45,7 @@ mod naming;
 mod sequences;
 mod sidecar;
 mod snapshots;
+pub mod sort;
 mod stacks;
 mod value;
 pub use crate::ids::{CollectionId, FolderId, PhotoId, RootId, StackId};
