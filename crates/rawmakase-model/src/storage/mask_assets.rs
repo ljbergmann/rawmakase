@@ -135,6 +135,32 @@ pub fn add_loader(loader: Arc<dyn AssetLoader>) {
     store.loaders.insert(0, loader);
 }
 
+/// The bounding box, as fractions of the photo `[left, top, right, bottom]`,
+/// of raster `id`'s selected pixels (half or more); `None` for an empty or
+/// unknown one. What a refinement that only leaves things out works within.
+pub fn raster_extent(id: &str) -> Option<[f32; 4]> {
+    let raster = resolve(id).ok()?;
+    let (w, h) = (raster.width as usize, raster.height as usize);
+    let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0, 0);
+    for (i, v) in raster.data.iter().enumerate() {
+        if *v >= 128 {
+            let (x, y) = (i % w, i / w);
+            x0 = x0.min(x);
+            x1 = x1.max(x + 1);
+            y0 = y0.min(y);
+            y1 = y1.max(y + 1);
+        }
+    }
+    (x1 > x0 && y1 > y0).then(|| {
+        [
+            x0 as f32 / w as f32,
+            y0 as f32 / h as f32,
+            x1 as f32 / w as f32,
+            y1 as f32 / h as f32,
+        ]
+    })
+}
+
 /// The raster stored under `id`: from the store, else read through the loader.
 /// A raster read must be what its ID names and what a mask describes.
 pub fn resolve(id: &str) -> Result<Arc<Bitmap>, AssetError> {
