@@ -656,6 +656,21 @@ pub fn import_profiles(picks: &[PathBuf], space: LutSpace) -> Summary {
     import_profiles_into(picks, space, &profile_library())
 }
 
+/// Imports the presets (and the looks among them) in `picks`, files and
+/// folders, as the app's Import does: the presets into `presets`/Imported,
+/// skipping those already in `presets`, the looks into the profile library
+/// `profiles`.
+pub fn import_presets_into(picks: &[PathBuf], presets: &Path, profiles: &Path) -> Summary {
+    let kind = ImportKind::Presets;
+    import_presets(
+        &gather(kind, picks),
+        &ImportProgress::default(),
+        presets,
+        &[presets.to_path_buf()],
+        profiles,
+    )
+}
+
 /// [`import_profiles`] into the profile library `destination`.
 pub fn import_profiles_into(picks: &[PathBuf], space: LutSpace, destination: &Path) -> Summary {
     let kind = ImportKind::CameraProfiles;
