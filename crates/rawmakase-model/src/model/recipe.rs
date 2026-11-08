@@ -711,6 +711,13 @@ impl Recipe {
     pub fn add_retouch(&mut self, op: crate::model::retouch::RetouchOp) {
         self.retouch.push(op);
     }
+    /// Adds a Red Eye or Pet Eye correction and turns the Red Eye switch on, so it
+    /// shows, as Lightroom does.
+    pub fn add_red_eye(&mut self, op: crate::model::red_eye::RedEyeOp) {
+        use crate::model::panels::{Panel, PanelState};
+        self.red_eye.push(op);
+        self.panels.set(Panel::RedEye, PanelState::On);
+    }
     /// Color noise reduction at its defaults: Lightroom's Amount 25 for raw files
     /// (Detail and Smoothness 50).
     /// AI Denoise's switch, as Lightroom's Denoise switch edits: switched on, manual
