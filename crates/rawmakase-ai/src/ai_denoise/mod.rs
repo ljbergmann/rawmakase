@@ -262,6 +262,15 @@ fn threads() -> usize {
 }
 
 fn load_model(dir: &Path, provider: Provider) -> Result<Box<dyn TileModel + Send>, String> {
+    load_model_with(dir, provider, None)
+}
+
+/// [`load_model`] with CoreML run as `coreml` plans, for measuring.
+pub(crate) fn load_model_with(
+    dir: &Path,
+    provider: Provider,
+    coreml: Option<rawmakase_inference::CoreMLPlan>,
+) -> Result<Box<dyn TileModel + Send>, String> {
     let bundled = crate::model_install::runtime_dir();
     let runtime_library = rawmakase_inference::runtime::runtime_file_names()
         .iter()
@@ -273,6 +282,7 @@ fn load_model(dir: &Path, provider: Provider) -> Result<Box<dyn TileModel + Send
             runtime_library,
             threads: Some(threads()),
             provider: Some(provider),
+            coreml,
         },
     )
     .map(|d| Box::new(d) as Box<dyn TileModel + Send>)

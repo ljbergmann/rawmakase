@@ -954,6 +954,7 @@ fn main() -> Result<()> {
                 input,
                 model,
                 provider,
+                coreml: None,
                 amount,
                 output,
                 plain_output,

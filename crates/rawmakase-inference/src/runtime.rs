@@ -119,6 +119,62 @@ impl Provider {
     }
 }
 
+/// Which graph format ONNX Runtime converts a model to for CoreML.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CoreMLFormat {
+    /// An ML Program, computed in the model's own precision. The Neural Engine takes
+    /// none of a single precision one: asked for, CoreML runs it on the GPU or CPU.
+    MLProgram,
+    /// The older NeuralNetwork format, ONNX Runtime's default.
+    NeuralNetwork,
+}
+
+/// The hardware CoreML may run a graph on, beside the CPU.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CoreMLUnits {
+    Gpu,
+    NeuralEngine,
+    /// The GPU and the Neural Engine, as CoreML decides per layer.
+    All,
+}
+
+/// How CoreML runs a graph: [`DENOISE_COREML`] for AI Denoise, ONNX Runtime's own
+/// defaults for the selection models; [`LoadOptions::coreml`] overrides either for
+/// measuring (docs/rendering-quality.md has what was measured).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CoreMLPlan {
+    pub format: CoreMLFormat,
+    pub units: CoreMLUnits,
+}
+impl CoreMLPlan {
+    /// A short name for reports, such as `MLProgram/Gpu`.
+    pub fn name(self) -> String {
+        format!("{:?}/{:?}", self.format, self.units)
+    }
+    /// The providers for this plan, the CPU after CoreML. `static_shapes` keeps from
+    /// CoreML every node whose input sizes vary; only a model fed one size wants it.
+    fn providers(self, static_shapes: bool) -> Vec<ExecutionProviderDispatch> {
+        let units = match self.units {
+            CoreMLUnits::Gpu => ep::coreml::ComputeUnits::CPUAndGPU,
+            CoreMLUnits::NeuralEngine => ep::coreml::ComputeUnits::CPUAndNeuralEngine,
+            CoreMLUnits::All => ep::coreml::ComputeUnits::All,
+        };
+        let format = match self.format {
+            CoreMLFormat::MLProgram => ep::coreml::ModelFormat::MLProgram,
+            CoreMLFormat::NeuralNetwork => ep::coreml::ModelFormat::NeuralNetwork,
+        };
+        vec![
+            ep::CoreML::default()
+                .with_model_format(format)
+                .with_compute_units(units)
+                .with_static_input_shapes(static_shapes)
+                .build()
+                .error_on_failure(),
+            ep::CPU::default().with_arena_allocator(false).build(),
+        ]
+    }
+}
+
 /// Options for [`Subject::load_with`].
 #[derive(Debug, Clone, Default)]
 pub struct LoadOptions {
@@ -129,6 +185,9 @@ pub struct LoadOptions {
     pub threads: Option<usize>,
     /// Hardware to ask for; `None` is the same as [`Provider::Cpu`].
     pub provider: Option<Provider>,
+    /// With [`Provider::CoreML`]: how CoreML runs the graphs, in place of the model's
+    /// own plan. For measuring; `None` everywhere else.
+    pub coreml: Option<CoreMLPlan>,
 }
 
 /// Threads for one inference: the available parallelism capped at 8. ONNX
@@ -164,14 +223,14 @@ impl Subject {
                     &dir.join(spec.encoder_file),
                     threads,
                     GraphOptimizationLevel::All,
-                    provider,
+                    options,
                 )?,
                 build_session(
                     &environment,
                     &dir.join(spec.decoder_file),
                     threads,
                     GraphOptimizationLevel::All,
-                    provider,
+                    options,
                 )?,
                 // The half-precision graph breaks the full fusion pass.
                 build_session(
@@ -179,7 +238,7 @@ impl Subject {
                     &dir.join(PANOPTIC.file.name),
                     threads,
                     GraphOptimizationLevel::Level1,
-                    provider,
+                    options,
                 )?,
             ))
         }))
@@ -212,7 +271,7 @@ impl Sky {
                 &dir.join(SKY.file.name),
                 threads,
                 GraphOptimizationLevel::All,
-                provider,
+                options,
             )
         }))
         .map_err(|_| {
@@ -287,7 +346,7 @@ pub struct Denoiser {
 impl Denoiser {
     /// Opens the runtime as [`Subject::load_with`] does and the denoiser in folder `dir`
     /// (with its `LICENSE` and `NOTICE`). A provider the manifest does not allow is an
-    /// error. On CoreML the graph runs as an ML Program on the CPU and GPU, in single
+    /// error. On CoreML the graph runs as [`DENOISE_COREML`] says, in single
     /// precision: the network's activations overflow half precision.
     pub fn load_with(dir: &Path, options: &LoadOptions) -> Result<Self, InferenceError> {
         let provider = options.provider.unwrap_or_default();
@@ -307,7 +366,7 @@ impl Denoiser {
                 threads,
                 GraphOptimizationLevel::All,
                 provider,
-                denoise_providers(provider),
+                providers_for(options, Some(DENOISE_COREML), true),
             )
         }))
         .map_err(|_| {
@@ -358,20 +417,24 @@ impl TileModel for Denoiser {
     }
 }
 
-/// The denoiser's providers: CoreML as an ML Program on the CPU and GPU (the measured
-/// configuration), the CPU otherwise.
-fn denoise_providers(provider: Provider) -> Vec<ExecutionProviderDispatch> {
-    match provider {
-        Provider::CoreML => vec![
-            ep::CoreML::default()
-                .with_model_format(ep::coreml::ModelFormat::MLProgram)
-                .with_compute_units(ep::coreml::ComputeUnits::CPUAndGPU)
-                .with_static_input_shapes(true)
-                .build()
-                .error_on_failure(),
-            ep::CPU::default().with_arena_allocator(false).build(),
-        ],
-        other => other.providers(),
+/// The denoiser's CoreML plan: an ML Program on the CPU and GPU, the measured
+/// configuration (docs/rendering-quality.md#ai-denoise).
+pub const DENOISE_COREML: CoreMLPlan = CoreMLPlan {
+    format: CoreMLFormat::MLProgram,
+    units: CoreMLUnits::Gpu,
+};
+
+/// The providers for `options`: its CoreML plan, or `plan` when it gives none, with
+/// [`Provider::CoreML`]; the provider's own list otherwise.
+fn providers_for(
+    options: &LoadOptions,
+    plan: Option<CoreMLPlan>,
+    static_shapes: bool,
+) -> Vec<ExecutionProviderDispatch> {
+    let provider = options.provider.unwrap_or_default();
+    match (provider, options.coreml.or(plan)) {
+        (Provider::CoreML, Some(plan)) => plan.providers(static_shapes),
+        _ => provider.providers(),
     }
 }
 
@@ -811,20 +874,22 @@ fn check_files(dir: &Path, files: &[ModelFile]) -> Result<(), InferenceError> {
     Ok(())
 }
 
+/// A selection model's session: CoreML as `options` plans it, else ONNX Runtime's own
+/// CoreML defaults.
 fn build_session(
     environment: &Environment,
     model_path: &Path,
     threads: usize,
     level: GraphOptimizationLevel,
-    provider: Provider,
+    options: &LoadOptions,
 ) -> Result<OrtSession, InferenceError> {
     build_session_with(
         environment,
         model_path,
         threads,
         level,
-        provider,
-        provider.providers(),
+        options.provider.unwrap_or_default(),
+        providers_for(options, None, false),
     )
 }
 
