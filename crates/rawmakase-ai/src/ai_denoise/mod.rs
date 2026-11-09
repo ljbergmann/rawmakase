@@ -195,8 +195,9 @@ struct Queue {
     outcomes: HashMap<String, Outcome>,
     /// Export waiters per key: a finished result is kept in memory only for them.
     waiting: HashMap<String, usize>,
-    /// The GPU produced a non-finite value: not used again in this session.
-    gpu_off: bool,
+    /// The provider jobs moved to after an accelerator failed ([`fallback`]): the
+    /// failed one is not used again in this session.
+    fallen_to: Option<Provider>,
     /// The worker is to drop its loaded models (the model is being removed).
     unload: bool,
     /// A worker thread serves the queue. Cleared by a worker leaving it, under the
@@ -302,8 +303,9 @@ impl Service {
     }
     /// The app's service with the model loaded by `loader` on `provider`, which names
     /// the results in the cache: an app that runs the model its own way (Safelight on
-    /// the Neural Engine). A tile that comes out not finite is redone on the CPU, which
-    /// `loader` must also load.
+    /// the Neural Engine). If the model does not load on `provider`, or a tile comes out
+    /// not finite, the job moves down [`fallback`]'s order (the Neural Engine to CoreML's
+    /// GPU, then the CPU), which `loader` must also load.
     pub fn with_loader(cache: AiCache, provider: Provider, loader: Loader) -> Self {
         Self::with(cache, provider, Arc::new(open_mosaic), loader)
     }
@@ -339,8 +341,8 @@ impl Service {
         self.shared.queue.lock().unwrap_or_else(|e| e.into_inner())
     }
     fn provider(&self, queue: &Queue) -> Provider {
-        if queue.gpu_off {
-            Provider::Cpu
+        if let Some(fallen) = queue.fallen_to {
+            fallen
         } else {
             self.shared.provider
         }
@@ -642,8 +644,14 @@ impl Service {
         let model = match models.entry((model_dir.clone(), job.provider)) {
             std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
             std::collections::hash_map::Entry::Vacant(e) => {
-                let model = (self.shared.loader)(&model_dir, job.provider)
-                    .map_err(|why| anyhow!("The AI Denoise model could not be loaded: {why}"))?;
+                let model = (self.shared.loader)(&model_dir, job.provider).map_err(|why| {
+                    // An accelerator that cannot load the model hands the job on.
+                    if job.provider == Provider::Cpu {
+                        anyhow!("The AI Denoise model could not be loaded: {why}")
+                    } else {
+                        anyhow::Error::new(AcceleratorFailed(format!("loading: {why}")))
+                    }
+                })?;
                 e.insert(model)
             }
         };
@@ -716,7 +724,7 @@ impl Service {
         )
         .map_err(|e| match e {
             InferenceError::OutputInvalid(why) if job.provider != Provider::Cpu => {
-                anyhow::Error::new(GpuFailed(why))
+                anyhow::Error::new(AcceleratorFailed(why))
             }
             e => anyhow!("AI Denoise failed: {e}"),
         })?;
@@ -771,35 +779,38 @@ impl Service {
     fn finish(&self, job: Job, result: Result<Outcome>) {
         let outcome = match result {
             Ok(outcome) => outcome,
-            Err(e) if e.downcast_ref::<GpuFailed>().is_some() => {
-                // Retried on the CPU under the CPU's key; the GPU is not used again.
+            Err(e) if e.downcast_ref::<AcceleratorFailed>().is_some() => {
+                // Retried on the next provider under its key; the failed one is not
+                // used again.
+                let failed = job.provider;
+                let next = fallback(failed);
                 let mut queue = self.queue();
-                queue.gpu_off = true;
+                queue.fallen_to = Some(next);
                 let joined = std::mem::take(&mut queue.joined);
                 queue.running = None;
-                let cpu = key_of(&job.identity, Provider::Cpu);
+                let moved = key_of(&job.identity, next);
                 queue
                     .outcomes
-                    .insert(job.key.clone(), Outcome::Moved(cpu.clone()));
+                    .insert(job.key.clone(), Outcome::Moved(moved.clone()));
                 let mut develop = job.develop;
                 develop.extend(joined);
                 queue.pending.push_front(Job {
-                    key: cpu,
-                    provider: Provider::Cpu,
+                    key: moved,
+                    provider: next,
                     develop,
                     ..job
                 });
-                // Queued jobs move to the CPU too, under the CPU's keys (their waiters
-                // follow), merged where two now name the same result.
+                // Queued jobs on the failed provider move too, under the next one's
+                // keys (their waiters follow), merged where two now name the same result.
                 let pending: Vec<Job> = queue.pending.drain(..).collect();
                 for mut job in pending {
-                    if job.provider != Provider::Cpu {
-                        let cpu = key_of(&job.identity, Provider::Cpu);
+                    if job.provider == failed {
+                        let moved = key_of(&job.identity, next);
                         queue
                             .outcomes
-                            .insert(job.key.clone(), Outcome::Moved(cpu.clone()));
-                        job.key = cpu;
-                        job.provider = Provider::Cpu;
+                            .insert(job.key.clone(), Outcome::Moved(moved.clone()));
+                        job.key = moved;
+                        job.provider = next;
                     }
                     if let Some(same) = queue.pending.iter_mut().find(|j| j.key == job.key) {
                         same.develop.extend(job.develop);
@@ -1099,15 +1110,25 @@ fn ensure_running(queue: &Queue) -> Result<()> {
     Ok(())
 }
 
-/// A non-finite value from a GPU provider: the attempt is discarded and rerun on the CPU.
+/// An accelerator could not load the model or answered with a value that is not finite:
+/// the attempt is discarded and rerun on the next provider ([`fallback`]).
 #[derive(Debug)]
-struct GpuFailed(String);
-impl std::fmt::Display for GpuFailed {
+struct AcceleratorFailed(String);
+impl std::fmt::Display for AcceleratorFailed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "the GPU produced an invalid result: {}", self.0)
+        write!(f, "the accelerator failed: {}", self.0)
     }
 }
-impl std::error::Error for GpuFailed {}
+impl std::error::Error for AcceleratorFailed {}
+
+/// Where a job goes when `failed` fails: the Neural Engine's to CoreML's GPU in single
+/// precision, every other accelerator's to the CPU.
+fn fallback(failed: Provider) -> Provider {
+    match failed {
+        Provider::NeuralEngine => Provider::CoreML,
+        _ => Provider::Cpu,
+    }
+}
 
 impl AiBase for Service {
     fn get(
