@@ -9,9 +9,8 @@ pub struct Command {
     /// The model's folder; the installed model by default.
     pub model: Option<PathBuf>,
     pub provider: Provider,
-    /// With [`Provider::CoreML`]: how CoreML runs the model, in place of its measured
-    /// plan.
-    pub coreml: Option<rawmakase_inference::CoreMLPlan>,
+    /// Loads the model in place of ONNX Runtime's loader ([`load_model`]).
+    pub loader: Option<Loader>,
     /// AI Denoise's Amount for `output` (0–1).
     pub amount: f32,
     /// A JPEG or PNG of the photo with its default settings and AI Denoise at `amount`.
@@ -112,10 +111,12 @@ pub fn command(c: Command) -> Result<()> {
         Some(cache) => cache,
         None => AiCache::new(scratch.path().to_path_buf(), 1 << 40),
     };
-    let service = Service::with(cache, c.provider, Arc::new(open_mosaic), {
-        let coreml = c.coreml;
-        Arc::new(move |dir: &Path, provider| load_model_with(dir, provider, coreml))
-    });
+    let service = Service::with(
+        cache,
+        c.provider,
+        Arc::new(open_mosaic),
+        c.loader.clone().unwrap_or_else(|| Arc::new(load_model)),
+    );
     let model = c
         .model
         .clone()

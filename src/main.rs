@@ -954,7 +954,7 @@ fn main() -> Result<()> {
                 input,
                 model,
                 provider,
-                coreml: None,
+                loader: None,
                 amount,
                 output,
                 plain_output,

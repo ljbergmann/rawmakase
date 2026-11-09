@@ -112,10 +112,15 @@ pub fn model_tag() -> String {
 /// The key of a finished result of the installed model for the file `file` names, run
 /// on any provider, when `cache` has one: what a Library preview of the photo shows.
 pub fn finished(cache: &AiCache, file: &crate::storage::Identity) -> Option<String> {
-    [Provider::Cpu, Provider::Cuda, Provider::CoreML]
-        .into_iter()
-        .map(|provider| key_of(file, provider))
-        .find(|key| cache.contains(key))
+    [
+        Provider::Cpu,
+        Provider::Cuda,
+        Provider::CoreML,
+        Provider::NeuralEngine,
+    ]
+    .into_iter()
+    .map(|provider| key_of(file, provider))
+    .find(|key| cache.contains(key))
 }
 
 /// `sink`, handed a result (partial or final) only while the file at `path` is still
@@ -261,12 +266,13 @@ fn threads() -> usize {
         .max(2)
 }
 
-fn load_model(dir: &Path, provider: Provider) -> Result<Box<dyn TileModel + Send>, String> {
+/// The installed model in `dir` on `provider`, through ONNX Runtime: the app's loader.
+pub fn load_model(dir: &Path, provider: Provider) -> Result<Box<dyn TileModel + Send>, String> {
     load_model_with(dir, provider, None)
 }
 
 /// [`load_model`] with CoreML run as `coreml` plans, for measuring.
-pub(crate) fn load_model_with(
+pub fn load_model_with(
     dir: &Path,
     provider: Provider,
     coreml: Option<rawmakase_inference::CoreMLPlan>,
@@ -292,12 +298,14 @@ pub(crate) fn load_model_with(
 impl Service {
     /// The app's service: the RAW decoders, ONNX Runtime and `cache`.
     pub fn new(cache: AiCache) -> Self {
-        Self::with(
-            cache,
-            preferred_provider(),
-            Arc::new(open_mosaic),
-            Arc::new(load_model),
-        )
+        Self::with_loader(cache, preferred_provider(), Arc::new(load_model))
+    }
+    /// The app's service with the model loaded by `loader` on `provider`, which names
+    /// the results in the cache: an app that runs the model its own way (Safelight on
+    /// the Neural Engine). A tile that comes out not finite is redone on the CPU, which
+    /// `loader` must also load.
+    pub fn with_loader(cache: AiCache, provider: Provider, loader: Loader) -> Self {
+        Self::with(cache, provider, Arc::new(open_mosaic), loader)
     }
     pub fn with(cache: AiCache, provider: Provider, source: Source, loader: Loader) -> Self {
         Self {

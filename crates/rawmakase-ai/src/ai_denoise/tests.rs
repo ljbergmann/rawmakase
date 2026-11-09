@@ -316,6 +316,25 @@ fn a_gpu_failure_after_good_tiles_reruns_on_the_cpu_under_the_cpus_key() {
 }
 
 #[test]
+fn a_neural_engine_result_is_kept_under_its_own_key_and_found_for_previews() {
+    let f = fixture(Provider::NeuralEngine, Behaviour::default());
+    let photo = f.photo("a.raw");
+    let plain = f.plain();
+    let (rx, _wanted) = f.request(&photo, &plain, None);
+    assert!(matches!(until_final(&rx).last(), Some(State::Ready(_))));
+    assert_eq!(*f.behaviour.loads.lock().unwrap(), [Provider::NeuralEngine]);
+    // Half precision is not the GPU's answer: neither result stands in for the other.
+    let cache = f.service.cache();
+    assert!(cache.contains(&key(&photo, Provider::NeuralEngine).unwrap()));
+    assert!(!cache.contains(&key(&photo, Provider::CoreML).unwrap()));
+    let identity = crate::storage::Identity::read(&photo).unwrap();
+    assert_eq!(
+        finished(cache, &identity),
+        Some(key(&photo, Provider::NeuralEngine).unwrap())
+    );
+}
+
+#[test]
 fn failures_and_panics_are_reported_and_the_worker_carries_on() {
     let f = fixture(
         Provider::Cpu,
