@@ -459,8 +459,11 @@ impl Raw {
         Ok(crate::ai::denoise::PackedBayer::pack(w, h, &data, [0, 0]))
     }
     pub fn develop(self, decode: Decode, cancel: Cancel<'_>) -> Result<CameraImage> {
-        // Small RAWs develop at full size in either mode, as they always have.
-        if let Some((width, height, pixels)) = self.own.rgb(self.metadata.wb, cancel)? {
+        // RGB sensor data (small RAWs, linear raw DNGs) is halved by averaging
+        // each 2 × 2 block in the reduced mode, as a mosaic's half decode is
+        // reduced: a merged panorama's full size can be gigabytes of floats.
+        let half = decode == Decode::Half;
+        if let Some((width, height, pixels)) = self.own.rgb(self.metadata.wb, half, cancel)? {
             ensure!(!cancel.is_cancelled(), "Development cancelled");
             return Ok(CameraImage {
                 recovered: Default::default(),
@@ -556,6 +559,32 @@ pub(crate) fn develop_rgb(
         .flat_map_iter(|row| {
             row.chunks_exact(channels).map(move |p| {
                 std::array::from_fn(|c| ((f32::from(p[c]) - black[c] as f32) * scale[c]).max(0.))
+            })
+        })
+        .collect()
+}
+/// [`develop_rgb`] at half size: each 2 × 2 block of pixels developed and
+/// averaged, a last odd row or column left out, as a mosaic's half decode
+/// leaves it. Never holds the full-size pixels.
+pub(crate) fn develop_rgb_half(
+    rows: &[&[u16]],
+    channels: usize,
+    black: [u32; 4],
+    white: u32,
+    wb: [f32; 3],
+) -> Vec<[f32; 3]> {
+    let scale: [f32; 3] = std::array::from_fn(|c| wb[c] / (white as f32 - black[c] as f32).max(1.));
+    let level = move |p: &[u16], c: usize| ((f32::from(p[c]) - black[c] as f32) * scale[c]).max(0.);
+    rows.par_chunks_exact(2)
+        .flat_map_iter(|pair| {
+            let (a, b) = (
+                pair[0].chunks_exact(channels),
+                pair[1].chunks_exact(channels),
+            );
+            let (a, b): (Vec<&[u16]>, Vec<&[u16]>) = (a.collect(), b.collect());
+            (0..a.len().min(b.len()) / 2).map(move |x| {
+                let block = [a[2 * x], a[2 * x + 1], b[2 * x], b[2 * x + 1]];
+                std::array::from_fn(|c| block.iter().map(|p| level(p, c)).sum::<f32>() / 4.)
             })
         })
         .collect()
@@ -850,6 +879,32 @@ mod tests {
             names.iter().all(|n| n.starts_with("background-")),
             "{names:?}"
         );
+    }
+    /// The reduced mode averages each 2 × 2 block of developed RGB (a
+    /// panorama's would be gigabytes at full size), leaving out a last odd
+    /// row or column, as a mosaic's half decode does.
+    #[test]
+    fn rgb_halves_by_averaging_each_block() {
+        // Three channels, 3 × 3 pixels: black 0, white 1000, no balance.
+        let rows: Vec<Vec<u16>> = (0..3u16)
+            .map(|y| {
+                (0..3u16)
+                    .flat_map(|x| [100 * (x + 3 * y), 0, 1000])
+                    .collect()
+            })
+            .collect();
+        let rows: Vec<&[u16]> = rows.iter().map(Vec::as_slice).collect();
+        let half = super::develop_rgb_half(&rows, 3, [0; 4], 1000, [1.; 3]);
+        // The one whole block: pixels 0, 1, 3 and 4.
+        assert_eq!(half.len(), 1);
+        assert!(
+            (half[0][0] - (0. + 100. + 300. + 400.) / 4. / 1000.).abs() < 1e-6,
+            "{half:?}"
+        );
+        assert_eq!((half[0][1], half[0][2]), (0., 1.));
+        let full = super::develop_rgb(&rows[..2], 3, [0; 4], 1000, [1.; 3]);
+        let mean = (full[0][0] + full[1][0] + full[3][0] + full[4][0]) / 4.;
+        assert!((half[0][0] - mean).abs() < 1e-6);
     }
     #[test]
     fn small_raws_develop_by_their_levels_and_white_balance() {

@@ -240,8 +240,11 @@ grey, there are no white balance multipliers, and `Metadata::monochrome`
 tells the edit that Temp and Tint do not apply (`Recipe::update_wb` keeps
 the gains at 1, masks' Temp and Tint do nothing, rendering ignores gains a
 preset or another photo's edit brought, and Develop disables White
-Balance), as Lightroom does. Like small RAWs they develop at full size in
-both modes. Linear raw of floating-point samples (Lightroom's HDR merges,
+Balance), as Lightroom does. Like small RAWs they develop at full size, or
+in the reduced mode at half size, each 2 × 2 block of developed pixels
+averaged (a last odd row or column left out, as a mosaic's half decode
+leaves it), so a merged panorama's preview never holds its full size in
+floats. A monochrome DNG develops at full size in both modes. Linear raw of floating-point samples (Lightroom's HDR merges,
 under a WhiteLevel of 32768) is scaled to 16 bits under its white, its
 levels with it, and rounded, so samples below one keep their precision.
 
