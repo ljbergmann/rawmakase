@@ -134,7 +134,8 @@ MS-SSIM over 5 scales), AI Denoise beat the best of manual Luminance 0, 25, 50 a
 frames (0.955 against 0.904; its losses at ISO 2500 or below, by at most 0.01), with no
 maze or grid at 100%. No tile was non-finite on the CPU or CoreML, which stays within
 1.2 × 10⁻⁶ (relative) of the CPU, so CoreML's GPU (an ML Program in single precision) is used on
-Apple Silicon: a 24 MP photo takes about 3.5 s there and 20 s on the CPU. Against Camera Raw 18.7's
+Apple Silicon: a 24 MP photo takes about 3.5 s there and 20 s on the CPU. An iPad (M1) is the
+same: a 45 MP photo's output within 1.1 × 10⁻⁶ of the CPU's, in 12.7 s against 39.9 s. Against Camera Raw 18.7's
 Denoise on five of those CC0 photos at Amount 50 and 100 (100% crops, side by side):
 similar at ISO 12,800–20,000 (Camera Raw keeps slightly more fine texture); behind at
 ISO 32,000 and above, where RawNIND leaves colour blotches in dark areas and Camera Raw

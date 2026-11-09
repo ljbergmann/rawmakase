@@ -229,10 +229,14 @@ pub struct Service {
     thread: Arc<Mutex<Option<std::thread::JoinHandle<()>>>>,
 }
 
-/// The provider AI Denoise asks for: CoreML's GPU on Apple Silicon (measured equal to
-/// the CPU, docs/rendering-quality.md#ai-denoise), the CPU elsewhere.
+/// The provider AI Denoise asks for: CoreML's GPU on Apple Silicon, Macs and iPads
+/// (measured equal to the CPU, docs/rendering-quality.md#ai-denoise), the CPU
+/// elsewhere.
 pub fn preferred_provider() -> Provider {
-    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+    if cfg!(all(
+        any(target_os = "macos", target_os = "ios"),
+        target_arch = "aarch64"
+    )) {
         Provider::CoreML
     } else {
         Provider::Cpu
