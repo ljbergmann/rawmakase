@@ -341,8 +341,9 @@ impl SkySession {
 }
 
 /// What the sky model is fed for a photo of `width` x `height`: scaled to the long edge,
-/// its proportions kept, unless that would leave a side too short for the network.
-fn sky_input_size(width: usize, height: usize) -> (usize, usize) {
+/// its proportions kept, unless that would leave a side too short for the network. Public
+/// for an app that runs the model its own way, at the same size.
+pub fn sky_input_size(width: usize, height: usize) -> (usize, usize) {
     let scale = SKY.long_edge as f64 / width.max(height) as f64;
     let side = |v: usize| ((v as f64 * scale).round() as usize).max(SKY.min_side);
     (side(width), side(height))
