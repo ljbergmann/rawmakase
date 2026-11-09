@@ -160,10 +160,16 @@ impl Own {
     }
     /// The visible area of sensor data that is not a mosaic (small RAWs'
     /// RGB, linear raw DNGs), developed: each channel (raw − black) / (white − black), white
-    /// balanced by `wb` unless the camera stored it balanced. A monochrome
-    /// DNG's one sample is every channel's, not white balanced. `None` for a
-    /// mosaic.
-    pub(super) fn rgb(&self, wb: [f32; 3], cancel: Cancel<'_>) -> Result<Option<Developed>> {
+    /// balanced by `wb` unless the camera stored it balanced; with `half`,
+    /// RGB is averaged over each 2 × 2 block ([`super::develop_rgb_half`]).
+    /// A monochrome DNG's one sample is every channel's, not white balanced,
+    /// at full size. `None` for a mosaic.
+    pub(super) fn rgb(
+        &self,
+        wb: [f32; 3],
+        half: bool,
+        cancel: Cancel<'_>,
+    ) -> Result<Option<Developed>> {
         if self.info.cfa.is_some() {
             return Ok(None);
         }
@@ -190,7 +196,16 @@ impl Own {
         let [left, top, w, h] = s.area.map(|v| v as usize);
         let wb = if self.info.balanced { [1.; 3] } else { wb };
         let channels = s.channels as usize;
+        let half = half && w >= 2 && h >= 2;
         let pixels = match &s.data {
+            SensorData::U16(d) if half => {
+                let rows = visible_rows(d, &s, [left, top, w, h]);
+                super::develop_rgb_half(&rows, channels, s.black, s.white, wb)
+            }
+            SensorData::F32(d) if half => {
+                let rows = visible_rows(d, &s, [left, top, w, h]);
+                super::develop_rgb_half(&rows, channels, s.black, s.white, wb)
+            }
             SensorData::U16(d) => {
                 let rows = visible_rows(d, &s, [left, top, w, h]);
                 super::develop_rgb(&rows, channels, s.black, s.white, wb)
@@ -200,6 +215,9 @@ impl Own {
                 super::develop_rgb(&rows, channels, s.black, s.white, wb)
             }
         };
+        if half {
+            return Ok(Some(((w / 2) as u32, (h / 2) as u32, pixels)));
+        }
         Ok(Some((w as u32, h as u32, pixels)))
     }
     /// Where red sits in the visible mosaic's 2 × 2 period (`[x, y]`), when AI Denoise's
