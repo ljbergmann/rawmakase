@@ -15,6 +15,19 @@ use crate::catalog::lightroom::{LibraryAlbum, Marked};
 use eframe::egui::{self, Color32, Sense, Vec2};
 use std::collections::HashSet;
 
+/// The library's albums as read for the dialog: with the catalog's photos in
+/// the cloud and their bytes, and the bytes free on the library's disk, where
+/// Lightroom downloads them (None when that can't be told).
+pub(crate) struct Albums {
+    albums: Vec<LibraryAlbum>,
+    in_cloud: (usize, u64),
+    free: Option<u64>,
+}
+
+/// Room left on the library's disk after a download, beyond the 2 GB
+/// Lightroom keeps free itself: the disk is the user's system disk too.
+const SPARE: u64 = 10_000_000_000;
+
 /// The albums to choose from, by their folders, and those chosen.
 pub(crate) struct DownloadDialog {
     albums: Vec<Choice>,
@@ -24,9 +37,8 @@ pub(crate) struct DownloadDialog {
     /// The catalog's photos here, and in the cloud with their originals' bytes.
     here: usize,
     in_cloud: (usize, u64),
-    /// Of those in the cloud, photos in no album, which only Lightroom can
-    /// download.
-    in_no_album: usize,
+    /// The bytes free on the library's disk, where Lightroom downloads.
+    free: Option<u64>,
 }
 
 /// An album as listed, under its folder's path ("2. Travel / Iceland").
@@ -40,6 +52,9 @@ enum Close {
     Cancel,
     Download,
 }
+
+/// The group of the photos in no album.
+const NOT_IN_AN_ALBUM: &str = "Not in an album";
 
 /// The dialog's width, and a row's height.
 const WIDTH: f32 = 560.;
@@ -76,7 +91,19 @@ impl Editor {
             move |tx| {
                 let result = crate::catalog::Catalog::open(&catalog)
                     .and_then(|mut c| c.lightroom_library_albums())
-                    .map(|albums| (albums, in_cloud, in_cloud_bytes))
+                    .map(|albums| {
+                        // The space Lightroom downloads into: the library's disk.
+                        let free = albums.first().and_then(|a| {
+                            rawmakase_fs::volume_facts(&a.account)
+                                .ok()
+                                .map(|f| f.available)
+                        });
+                        Box::new(Albums {
+                            albums,
+                            in_cloud: (in_cloud, in_cloud_bytes),
+                            free,
+                        })
+                    })
                     .map_err(|e| format!("{e:#}"));
                 let _ = tx.send(Event::LightroomAlbums(result));
             },
@@ -87,22 +114,24 @@ impl Editor {
     }
 
     /// Shows the albums read, or why they couldn't be.
-    pub(in crate::app) fn lightroom_albums(
-        &mut self,
-        result: Result<(Vec<LibraryAlbum>, usize, u64), String>,
-    ) {
+    pub(in crate::app) fn lightroom_albums(&mut self, result: Result<Box<Albums>, String>) {
         self.catalog_work = None;
         self.activity.finish_dialog();
         match result {
-            Ok((albums, in_cloud, bytes)) => {
+            Ok(read) => {
+                let Albums {
+                    albums,
+                    in_cloud,
+                    free,
+                } = *read;
                 // The catalog's other photos are here.
                 let here = self.library.as_ref().map_or(0, |l| {
                     let masters = l.session.photos().iter().filter(|p| p.master.is_none());
-                    masters.count().saturating_sub(in_cloud)
+                    masters.count().saturating_sub(in_cloud.0)
                 });
-                self.modal = Some(crate::app::Modal::LightroomDownload(Box::new(
-                    DownloadDialog::new(albums, here, (in_cloud, bytes)),
-                )))
+                let mut dialog = DownloadDialog::new(albums, here, in_cloud);
+                dialog.free = free;
+                self.modal = Some(crate::app::Modal::LightroomDownload(Box::new(dialog)));
             }
             Err(e) => self.messages.warn(format!("Download from Lightroom: {e}")),
         }
@@ -150,19 +179,23 @@ impl Editor {
                             .auto_shrink([false, true])
                             .show(ui, |ui| album_list(ui, &palette, dialog));
                     });
-                if dialog.in_no_album > 0 {
-                    ui.add_space(space::S);
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{} photos in the cloud are in no album: download those in Lightroom.",
-                            count(dialog.in_no_album)
-                        ))
-                        .size(text::SMALL)
-                        .color(palette.tone(Tone::FAINT)),
-                    );
-                }
                 ui.add_space(space::XL);
                 let (photos, bytes) = dialog.totals();
+                let fits = dialog.fits();
+                if let Err((needed, free)) = fits {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Too much for the library's disk: {} needed, {} free. Lightroom \
+                             downloads into its library; choose fewer albums, or move the \
+                             library to a larger disk in Lightroom first.",
+                            size(needed),
+                            size(free)
+                        ))
+                        .size(text::LABEL)
+                        .color(Color32::from_rgb(220, 120, 90)),
+                    );
+                    ui.add_space(space::S);
+                }
                 // One line, the summary centred on the buttons.
                 let line = Vec2::new(ui.available_width(), 34.);
                 ui.allocate_ui_with_layout(
@@ -170,14 +203,29 @@ impl Editor {
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
                         ui.spacing_mut().button_padding = button::DIALOG;
-                        let summary = match dialog.chosen.len() {
-                            0 => "No albums chosen".to_string(),
-                            n => format!(
-                                "{} · {} · {}",
-                                plural(n, "album", "albums"),
-                                plural(photos, "photo", "photos"),
-                                size(bytes)
-                            ),
+                        let albums = dialog
+                            .chosen
+                            .iter()
+                            .filter(|&&i| !dialog.albums[i].album.loose)
+                            .count();
+                        let loose = albums < dialog.chosen.len();
+                        let summary = match (albums, loose) {
+                            (0, false) => "No albums chosen".to_string(),
+                            (n, loose) => {
+                                let what = match (n, loose) {
+                                    (0, _) => "Photos in no album".to_string(),
+                                    (n, false) => plural(n, "album", "albums"),
+                                    (n, true) => format!(
+                                        "{} and photos in no album",
+                                        plural(n, "album", "albums")
+                                    ),
+                                };
+                                format!(
+                                    "{what} · {} · {}",
+                                    plural(photos, "photo", "photos"),
+                                    size(bytes)
+                                )
+                            }
                         };
                         ui.label(
                             egui::RichText::new(summary)
@@ -185,8 +233,9 @@ impl Editor {
                                 .color(palette.tone(Tone::SOFT)),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let download =
-                                ui.add_enabled_ui(photos > 0, |ui| primary_button(ui, "Download"));
+                            let download = ui.add_enabled_ui(photos > 0 && fits.is_ok(), |ui| {
+                                primary_button(ui, "Download")
+                            });
                             if download.inner.clicked() {
                                 close = Some(Close::Download);
                             }
@@ -258,15 +307,21 @@ impl Editor {
         match result {
             Ok((marked, opened, photos, bytes)) => {
                 let mut line = format!(
-                    "Lightroom will download {photos} photos ({}) of {} albums",
-                    size(bytes),
-                    marked.albums
+                    "Lightroom will download {} ({})",
+                    plural(photos, "photo", "photos"),
+                    size(bytes)
                 );
                 line.push_str(if opened {
                     "; keep it open until they are here"
                 } else {
                     ": open Lightroom and keep it open until they are here"
                 });
+                if marked.new_album.is_some() {
+                    line.push_str(&format!(
+                        " · those in no album are in album \"{}\"",
+                        crate::catalog::lightroom::NEW_ALBUM
+                    ));
+                }
                 if marked.unsettled > 0 {
                     line.push_str(&format!(
                         " · {} photos Lightroom hasn't finished syncing were left out",
@@ -306,11 +361,21 @@ impl DownloadDialog {
             .iter()
             .filter(|a| !a.set && a.photos > 0)
             .map(|a| Choice {
-                folder: folder(a),
+                folder: if a.loose {
+                    NOT_IN_AN_ALBUM.into()
+                } else {
+                    folder(a)
+                },
                 album: a.clone(),
             })
             .collect();
-        choices.sort_by_key(|c| (c.folder.to_lowercase(), c.album.name.to_lowercase()));
+        choices.sort_by_key(|c| {
+            (
+                c.album.loose,
+                c.folder.to_lowercase(),
+                c.album.name.to_lowercase(),
+            )
+        });
         let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
         for (i, choice) in choices.iter().enumerate() {
             match groups.last_mut() {
@@ -318,16 +383,16 @@ impl DownloadDialog {
                 _ => groups.push((choice.folder.clone(), vec![i])),
             }
         }
-        // Albums in no folder last, as a group of their own.
-        groups.sort_by_key(|(folder, _)| folder.is_empty());
-        let (in_albums, _) = totals(choices.iter().map(|c| &c.album));
+        // Albums in no folder after the folders, as a group of their own,
+        // and photos in no album last.
+        groups.sort_by_key(|(folder, _)| (folder == NOT_IN_AN_ALBUM, folder.is_empty()));
         Self {
             albums: choices,
             groups,
             chosen: HashSet::new(),
             here,
-            in_no_album: in_cloud.0.saturating_sub(in_albums),
             in_cloud,
+            free: None,
         }
     }
 
@@ -335,6 +400,16 @@ impl DownloadDialog {
     /// a photo in several of them once.
     fn totals(&self) -> (usize, u64) {
         totals(self.chosen.iter().map(|&i| &self.albums[i].album))
+    }
+
+    /// Whether the photos chosen fit on the library's disk, with room to
+    /// spare; and if not, what they need and what is free.
+    fn fits(&self) -> Result<(), (u64, u64)> {
+        let (_, bytes) = self.totals();
+        match self.free {
+            Some(free) if bytes.saturating_add(SPARE) > free => Err((bytes, free)),
+            _ => Ok(()),
+        }
     }
 
     /// Whether album `i` can be chosen: it has photos in the cloud.
@@ -604,8 +679,17 @@ fn album_row(ui: &mut egui::Ui, palette: &theme::Palette, dialog: &mut DownloadD
             dialog.chosen.insert(i);
         }
     }
-    if choosable {
-        response.on_hover_cursor(egui::CursorIcon::PointingHand);
+    let response = if choosable {
+        response.on_hover_cursor(egui::CursorIcon::PointingHand)
+    } else {
+        response
+    };
+    if dialog.albums[i].album.loose {
+        response.on_hover_text(format!(
+            "Lightroom keeps only albums on this computer: RAWmakase makes an album, \
+             \"{}\", of these photos for Lightroom to download.",
+            crate::catalog::lightroom::NEW_ALBUM
+        ));
     }
 }
 
@@ -686,6 +770,7 @@ mod tests {
             in_cloud: cloud.len(),
             in_cloud_bytes: cloud.iter().map(|(_, s)| s).sum(),
             in_cloud_assets: cloud.iter().map(|(a, s)| (a.to_string(), *s)).collect(),
+            loose: false,
         }
     }
 
@@ -693,6 +778,8 @@ mod tests {
     fn albums_are_listed_by_their_folders_and_a_photo_in_two_counts_once() {
         let mut empty = album("empty", None, false, &[]);
         empty.photos = 0;
+        let mut loose = album("loose", None, false, &[("c", 5_000_000)]);
+        loose.loose = true;
         let albums = vec![
             album("travel", None, true, &[]),
             album(
@@ -704,8 +791,9 @@ mod tests {
             album("best", None, false, &[("b", 20_000_000)]),
             album("done", None, false, &[]),
             empty,
+            loose,
         ];
-        let mut dialog = DownloadDialog::new(albums, 7, (3, 40_000_000));
+        let mut dialog = DownloadDialog::new(albums, 7, (4, 45_000_000));
         let groups: Vec<(&str, Vec<&str>)> = dialog
             .groups
             .iter()
@@ -717,16 +805,21 @@ mod tests {
                 (folder.as_str(), names)
             })
             .collect();
-        // Folders first, albums in none last; an empty album isn't listed.
+        // Folders first, then albums in none, then the photos in no album; an
+        // empty album isn't listed.
         assert_eq!(
             groups,
-            [("TRAVEL", vec!["iceland"]), ("", vec!["best", "done"])]
+            [
+                ("TRAVEL", vec!["iceland"]),
+                ("", vec!["best", "done"]),
+                (NOT_IN_AN_ALBUM, vec!["loose"])
+            ]
         );
         let at = |id: &str| dialog.albums.iter().position(|c| c.album.id == id).unwrap();
         dialog.chosen = [at("iceland"), at("best")].into();
         assert_eq!(dialog.totals(), (2, 30_000_000));
-        // One photo in the cloud is in no album.
-        assert_eq!(dialog.in_no_album, 1);
+        dialog.chosen.insert(at("loose"));
+        assert_eq!(dialog.totals(), (3, 35_000_000));
         assert!(!dialog.choosable(at("done")));
         assert_eq!(status(&dialog.albums[at("done")].album), "All here");
         assert_eq!(
@@ -734,6 +827,20 @@ mod tests {
             "2 photos · 30 MB"
         );
         assert_eq!(count(22951), "22,951");
+        // What doesn't fit on the library's disk, with room to spare, can't
+        // be downloaded; nor what fits only without it.
+        assert_eq!(dialog.fits(), Ok(()), "the disk unknown");
+        dialog.free = Some(SPARE + 35_000_000);
+        assert_eq!(dialog.fits(), Ok(()));
+        dialog.free = Some(SPARE + 34_000_000);
+        assert_eq!(dialog.fits(), Err((35_000_000, SPARE + 34_000_000)));
+        // 326 GB of photos in no album on a disk with 232 GB free.
+        let mut big = album("big", None, false, &[("x", 326_000_000_000)]);
+        big.loose = true;
+        let mut dialog = DownloadDialog::new(vec![big], 977, (1, 326_000_000_000));
+        dialog.free = Some(232_000_000_000);
+        dialog.chosen.insert(0);
+        assert!(dialog.fits().is_err());
         assert_eq!(count(999), "999");
     }
 }
