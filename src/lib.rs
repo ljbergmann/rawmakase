@@ -54,8 +54,10 @@ pub(crate) mod catalog_session;
 pub mod comparison;
 pub mod diagnostics;
 pub(crate) use rawmakase_edit_session as edit_session;
-pub mod lensfun_install;
+// Installing Lensfun's lens database (crates/rawmakase-lensfun), shared with the
+// command line.
 pub(crate) use rawmakase_ai::model_install;
+pub use rawmakase_lensfun as lensfun_install;
 pub(crate) mod platform;
 /// For headless commands: whether a path's volume is mounted.
 pub use platform::volume::mounted as volume_mounted;

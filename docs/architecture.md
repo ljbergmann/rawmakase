@@ -31,11 +31,13 @@ flowchart TD
     inference[rawmakase-inference]
     session[rawmakase-edit-session]
     ai[rawmakase-ai]
+    lensfun[rawmakase-lensfun]
 
     app --> export & decode & catalog & engine & interop & model
-    app --> ctl & remote & inference & fs & session & ai
+    app --> ctl & remote & inference & fs & session & ai & lensfun
     session --> interop
     ai --> decode & inference
+    lensfun --> model
     export --> decode & engine & interop
     decode --> engine & raw
     catalog --> interop & fs
@@ -56,6 +58,7 @@ on it directly.)
 | `rawmakase-interop` | The file formats and presets over the model: XMP, Lightroom's Develop settings, presets, raw defaults, EXIF and JPEG, export settings, and which edit a photo develops with (`edits`) | The same |
 | `rawmakase-edit-session` | The edit of the photo open in Develop apart from the window (`edit_session`): its bounded History (named steps, one per gesture, saved with the edit) and save state | The RAW decoders, the renderer, the catalog, the GUI |
 | `rawmakase-ai` | AI Denoise's service (`ai_denoise`), the model installer (`model_install`) and what a Subject, Background or Sky selection is given and records (`selection`: the input's size, the models' provenance, the input and prompt keys), shared by the app, its command line and other front ends | The catalog, export, the GUI |
+| `rawmakase-lensfun` | Installing, updating and removing Lensfun's lens database (`lensfun_install`), shared by the app, its command line and other front ends; reading the installed database is the model's `lens::lensfun::installed` | The RAW decoders, the renderer, the catalog, the GUI |
 | `rawmakase-catalog` | The SQLite catalog, Lightroom catalog import, file operations, and the stored edit records `edits` resolves | The same |
 | `rawmakase-engine` | The renderer (`develop`): the CPU pipeline, which is the reference, and the GPU preview port | The RAW decoders, the catalog, the GUI |
 | `rawmakase-raw` | RAWmakase's own RAW decoders ([RAW decoding](raw-decoding.md)) | Everything but `rawmakase-tiff` and `rawmakase-cancel` |
@@ -121,7 +124,7 @@ between top-level modules (see [boundaries](#boundaries-to-preserve)).
 | `updates` | Release checks and self-update through fastframe-update; the notice itself is in `app` | `updates.rs` |
 | `ai_denoise` | AI Denoise's service, shared by the desktop app and the command line: the queue, the worker and its ONNX session, job keys, the finished-result lookup, `AiBase` for export; `CommandLine` for `render` and `render-batch`, and the `rawmakase denoise` development command. No egui and no `app`: the open photo's result and the Loupe's loader are `app::develop::ai_denoise`'s, and the app passes the user's cache in. In `crates/rawmakase-ai`, which the app re-exports | `mod.rs`, `command_line.rs`, `bench.rs` |
 | `model_install` | Installing the model packs (Select Subject's, Sky's, AI Denoise's): their folders, the receipt of checked files, downloads that resume, the lock across instances, and the runtime folder; the threads and the drawer are `app`'s. In `crates/rawmakase-ai`, which the app re-exports | `mod.rs` |
-| `lensfun_install` | Downloading, checking, publishing and removing Lensfun's lens database on request (never bundled, never fetched unasked); reading it is `lens::lensfun::installed`'s, the panels and the job thread are `app`'s | `lensfun_install.rs` |
+| `lensfun_install` | Downloading, checking, publishing and removing Lensfun's lens database on request (never bundled, never fetched unasked); reading it is `lens::lensfun::installed`'s, the panels and the job thread are `app`'s. In `crates/rawmakase-lensfun`, which the app re-exports | `lib.rs` |
 | `comparison` | Reproducible reference-image comparisons using the same develop APIs | `comparison.rs` |
 
 `color` holds shared numeric primitives (matrices, sRGB transfer, HSV), the export colour

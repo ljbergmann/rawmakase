@@ -13,8 +13,8 @@ fn lensfun_row_stays_inside_a_narrow_panel() -> anyhow::Result<()> {
     ctx.enable_accesskit();
     ctx.all_styles_mut(|s| s.animation_time = 0.);
     let dir = tempfile::tempdir()?;
-    let archive =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/lensfun/good.tar.bz2");
+    let archive = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("crates/rawmakase-lensfun/tests/lensfun/good.tar.bz2");
     let mut editor = Editor::with_context(
         &ctx,
         None,
@@ -110,8 +110,8 @@ fn lensfun_is_offered_downloaded_and_used_in_one_step() -> anyhow::Result<()> {
     ctx.enable_accesskit();
     ctx.all_styles_mut(|s| s.animation_time = 0.);
     let dir = tempfile::tempdir()?;
-    let archive =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/lensfun/good.tar.bz2");
+    let archive = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("crates/rawmakase-lensfun/tests/lensfun/good.tar.bz2");
     let mut editor = Editor::with_context(
         &ctx,
         None,

@@ -274,7 +274,7 @@ mod tests {
 
     fn archive(name: &str) -> std::path::PathBuf {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/lensfun")
+            .join("crates/rawmakase-lensfun/tests/lensfun")
             .join(name)
     }
     /// Runs `job` and hands back its event, as the window would receive it.
