@@ -21,8 +21,9 @@ pub fn version() -> String {
 /// demosaic and associated lens sampling, bumped when these change the output.
 /// 2: Directional X-Trans blending, stripe chromaticity reconstruction and
 /// matching lens-CA sampling protection (#547).
+/// 3: A DNG's transparency mask renders white (a panorama's empty corners).
 pub fn developed() -> String {
-    "rawmakase-raw 2".into()
+    "rawmakase-raw 3".into()
 }
 /// Runs `work` on a thread of its own at background priority: a lower
 /// scheduling priority, and parallel work (RAWmakase's decoders) on two
@@ -375,6 +376,7 @@ impl Raw {
             lens_profiles: Default::default(),
             lateral_ca: Default::default(),
             embedded_dcp: None,
+            coverage: None,
             levels: h.levels,
             make: h.make,
             model: h.model,
@@ -382,6 +384,7 @@ impl Raw {
         if let Some(crop) = h.recommended_crop {
             metadata.apply_default_crop(visible(crop, margin));
         }
+        metadata.coverage = own.coverage().map(std::sync::Arc::new);
         Ok(Self {
             own: Box::new(own),
             metadata,
