@@ -19,6 +19,7 @@ pub struct Catalog {
     file: Option<crate::fsops::FileId>,
 }
 
+mod albums;
 mod checksums;
 mod copies;
 mod db;
@@ -381,6 +382,8 @@ fn set_meta(w: &mut Write<'_>, key: &str, value: &str) -> Result<()> {
 }
 
 pub use sidecar::Merge;
+#[cfg(test)]
+mod albums_tests;
 #[cfg(test)]
 mod boundary_tests;
 #[cfg(test)]
