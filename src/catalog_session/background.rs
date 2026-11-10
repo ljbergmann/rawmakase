@@ -64,4 +64,11 @@ impl<T> Drop for Reader<T> {
     }
 }
 
-pub(crate) use rawmakase_decode::photo_info::can_read;
+/// Whether the file can be read now: an offline file, one without
+/// permission or a network error is tried again later.
+pub(crate) fn can_read(path: &Path) -> bool {
+    use std::io::Read as _;
+    std::fs::File::open(path)
+        .and_then(|mut f| f.read_exact(&mut [0; 1]))
+        .is_ok()
+}

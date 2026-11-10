@@ -1,7 +1,7 @@
 //! Opening and decoding photos: RAW files read by RAWmakase's own decoders ([`raw`]),
 //! colour management of what is shown and exported ([`color_management`]) and colour
 //! difference ([`color_difference`]), RAWmakase's own demosaicing (`demosaic`),
-//! opening a photo ([`photo`]) and reading its camera info ([`photo_info`]), its full-size decode through the decode cache
+//! opening a photo ([`photo`]) and its full-size decode through the decode cache
 //! ([`decode`], [`decode_cache`]), and opening a JPEG, PNG, TIFF, WebP, AVIF, HEIF or
 //! JPEG XL, which is not developed ([`raster`]). It also holds what AI Denoise needs
 //! from a decode, with no model knowledge ([`ai`]), fitting Camera Look to a RAW's
@@ -24,6 +24,5 @@ pub mod decode_cache;
 mod demosaic;
 pub mod dev;
 pub mod photo;
-pub mod photo_info;
 pub mod raster;
 pub mod raw;

@@ -84,11 +84,6 @@ impl RetouchOp {
             RetouchShape::Brush { points, .. } => points[points.len() - 1],
         }
     }
-    /// The source a spot gets when no automatic one is found: three radii to the
-    /// right.
-    pub fn fallback_offset(&self) -> [f32; 2] {
-        [self.radius() * 3., 0.]
-    }
     /// Moves the destination by `delta` (image space), keeping the source in place.
     pub fn translate(&mut self, delta: [f32; 2]) {
         let shift = |p: [f32; 2]| [p[0] + delta[0], p[1] + delta[1]];
@@ -108,26 +103,6 @@ pub fn radii(r: f32, aspect: f32) -> (f32, f32) {
     } else {
         (r / aspect, r)
     }
-}
-/// Adds image-space position `at` to a brushed spot's dabs when it lies a quarter of
-/// the brush's `radius` (a long-edge fraction) or more from the last one, on a photo
-/// whose width is `aspect` times its height, and the path has room. Whether it did.
-pub fn add_dab(points: &mut Vec<[f32; 2]>, at: [f32; 2], radius: f32, aspect: f32) -> bool {
-    let Some(last) = points.last() else {
-        points.push(at);
-        return true;
-    };
-    // Spacing in long-edge units, whatever the photo's aspect.
-    let (dx, dy) = if aspect >= 1. {
-        (at[0] - last[0], (at[1] - last[1]) / aspect)
-    } else {
-        ((at[0] - last[0]) * aspect, at[1] - last[1])
-    };
-    let spaced = dx.hypot(dy) >= radius * 0.25 && points.len() < MAX_POINTS;
-    if spaced {
-        points.push(at);
-    }
-    spaced
 }
 pub fn validate(ops: &[RetouchOp]) -> Result<()> {
     ensure!(ops.len() <= MAX_OPS, "Too many spot removals");
@@ -163,20 +138,6 @@ mod tests {
         let unknown = format!("{},\"extra\":1}}", &brush[..brush.len() - 1]);
         assert!(serde_json::from_str::<serde_json::Value>(&unknown).is_ok());
         assert!(serde_json::from_str::<RetouchOp>(&unknown).is_err());
-    }
-
-    #[test]
-    fn dabs_are_a_quarter_radius_apart_on_any_aspect() {
-        let mut points = vec![];
-        assert!(add_dab(&mut points, [0.5, 0.5], 0.04, 1.5));
-        assert!(!add_dab(&mut points, [0.505, 0.5], 0.04, 1.5), "too close");
-        assert!(add_dab(&mut points, [0.511, 0.5], 0.04, 1.5));
-        // Across a landscape photo's height a step covers more of the long edge.
-        assert!(!add_dab(&mut points, [0.511, 0.51], 0.04, 1.5));
-        assert!(add_dab(&mut points, [0.511, 0.516], 0.04, 1.5));
-        assert_eq!(points.len(), 3);
-        let mut full = vec![[0., 0.]; MAX_POINTS];
-        assert!(!add_dab(&mut full, [1., 1.], 0.04, 1.), "no room");
     }
 
     #[test]

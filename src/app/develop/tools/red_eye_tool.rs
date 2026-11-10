@@ -8,6 +8,7 @@ use crate::app::develop::tools::retouch_tool::{hint, indented};
 use crate::app::ui::design::space;
 use crate::app::ui::theme;
 use crate::app::ui::widgets::{segmented, slider_with};
+use crate::develop::red_eye::PupilGlow;
 use crate::develop::{ViewMapping, red_eye};
 use crate::model::red_eye::{EyeKind, RedEyeOp};
 use eframe::egui::{self, Color32, Pos2, Rect, Stroke, Vec2};
@@ -246,25 +247,40 @@ impl Editor {
             .and_then(|i| self.document.edit.recipe().red_eye.get(i))
             .map_or(self.view.red_eye.pet, |op| PupilType::of(op.kind));
         let kind = pet.kind();
-        let (pupil_size, darken) = self
-            .view
-            .red_eye
-            .selected
-            .and_then(|i| self.document.edit.recipe().red_eye.get(i))
-            .map_or(
-                (
-                    crate::model::red_eye::DEFAULT_PUPIL_SIZE,
-                    crate::model::red_eye::DEFAULT_DARKEN,
-                ),
-                |op| (op.pupil_size, op.darken),
-            );
-        match red_eye::correction(im, center, size, kind, pupil_size, darken) {
-            Ok(op) => {
+        match red_eye::find_pupil(
+            im,
+            center,
+            size.min(crate::model::red_eye::MAX_RADIUS),
+            kind.glow(),
+        ) {
+            Ok(pupil) => {
+                let (pupil_size, darken) = self
+                    .view
+                    .red_eye
+                    .selected
+                    .and_then(|i| self.document.edit.recipe().red_eye.get(i))
+                    .map_or(
+                        (
+                            crate::model::red_eye::DEFAULT_PUPIL_SIZE,
+                            crate::model::red_eye::DEFAULT_DARKEN,
+                        ),
+                        |op| (op.pupil_size, op.darken),
+                    );
+                let mut op = RedEyeOp {
+                    kind,
+                    center: pupil.center,
+                    radius: pupil.radius,
+                    correlation: pupil.correlation,
+                    pupil_size,
+                    darken,
+                };
+                op.fit_catchlight();
                 if let Err(e) = op.validate() {
                     self.messages.fail(e.to_string());
                     return;
                 }
-                self.document.edit.recipe_mut().add_red_eye(op);
+                self.document.edit.recipe_mut().red_eye.push(op);
+                self.show_red_eye();
                 self.select_red_eye(Some(self.document.edit.recipe().red_eye.len() - 1));
             }
             // Lightroom's warning.

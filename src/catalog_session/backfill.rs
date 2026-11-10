@@ -336,10 +336,38 @@ pub(crate) fn read_sequence(
 }
 
 /// The file's info: `None` when it cannot be read now, `Some(None)` when it
-/// has none. A RAW on a network volume is read from its header alone
-/// ([`crate::platform::preview_reads`]).
+/// has none.
 pub(crate) fn read_info(path: &Path) -> Option<Option<PhotoInfo>> {
-    rawmakase_decode::photo_info::read_info(path, crate::platform::preview_reads::previews_only)
+    if !can_read(path) {
+        return None;
+    }
+    Some(if crate::storage::is_raw(path) {
+        // An X3F's, which RAWmakase doesn't decode, from its header alone.
+        // One with none may not have been read whole (its preview); its
+        // header is read again later, which costs little.
+        if let Some(undecoded) = crate::raw::undecoded(path) {
+            return (undecoded.info != PhotoInfo::default()).then_some(Some(undecoded.info));
+        }
+        // On a network volume, from the header alone: the whole RAW is most of
+        // the cost and none of the info. Else, or when that can't be read,
+        // from the file opened whole. A RAW that cannot be opened now (still
+        // copying, a network error) is tried again later.
+        let header = crate::platform::preview_reads::previews_only(path)
+            .then(|| crate::photo::header_metadata(path).ok())
+            .flatten();
+        let metadata = match header {
+            Some(metadata) => metadata,
+            None => crate::photo::open(path).ok()?.metadata,
+        };
+        Some(PhotoInfo::from_metadata(&metadata))
+    } else {
+        let mut info = crate::exif::photo_info(path).unwrap_or_default();
+        // A rendered file's size as shown, after its orientation, from its
+        // header alone. A header that cannot be read yet (a file still being copied) is
+        // tried again later.
+        info.dimensions = Some(crate::raster::dimensions(path)?);
+        (info != PhotoInfo::default()).then_some(info)
+    })
 }
 
 #[cfg(test)]

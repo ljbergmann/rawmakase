@@ -682,10 +682,20 @@ pub(in crate::app) fn parametric_curve_ui(
         if r.dragged()
             && let Some(p) = r.interact_pointer_pos()
         {
-            effects.move_split(i, (p.x - track.left()) / track.width());
+            let lo = if i == 0 {
+                0.05
+            } else {
+                effects.splits[i - 1] + 0.05
+            };
+            let hi = if i == 2 {
+                0.95
+            } else {
+                effects.splits[i + 1] - 0.05
+            };
+            effects.splits[i] = ((p.x - track.left()) / track.width()).clamp(lo, hi);
         }
         if r.double_clicked() {
-            effects.splits[i] = crate::model::effects::Effects::DEFAULT_SPLITS[i];
+            effects.splits[i] = [0.25, 0.5, 0.75][i];
         }
         let color = palette.tone(if r.hovered() || r.dragged() {
             Tone::STRONG

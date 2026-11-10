@@ -12,10 +12,9 @@
 mod detect;
 mod render;
 
-use crate::camera_data::CameraImage;
-use crate::model::red_eye::{EyeKind, MAX_RADIUS, RedEyeOp};
+use crate::model::red_eye::EyeKind;
 
-pub use detect::{DetectError, Glow, find_pupil};
+pub use detect::{Glow, find_pupil};
 pub(crate) use render::Placed;
 
 /// What a pupil of this kind glows like, for finding it.
@@ -30,30 +29,6 @@ impl PupilGlow for EyeKind {
             EyeKind::Pet { .. } => Glow::Bright,
         }
     }
-}
-
-/// A correction of `kind` for the pupil found within `size` (a fraction of the long
-/// edge, at most [`MAX_RADIUS`]) of image-space position `center` in `im`, with Pupil
-/// Size and Darken; a Pet Eye's catchlight is pulled within the pupil.
-pub fn correction(
-    im: &CameraImage,
-    center: [f32; 2],
-    size: f32,
-    kind: EyeKind,
-    pupil_size: f32,
-    darken: f32,
-) -> Result<RedEyeOp, DetectError> {
-    let pupil = find_pupil(im, center, size.min(MAX_RADIUS), kind.glow())?;
-    let mut op = RedEyeOp {
-        kind,
-        center: pupil.center,
-        radius: pupil.radius,
-        correlation: pupil.correlation,
-        pupil_size,
-        darken,
-    };
-    op.fit_catchlight();
-    Ok(op)
 }
 
 #[cfg(test)]

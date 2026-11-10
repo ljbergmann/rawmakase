@@ -331,25 +331,6 @@ pub fn parse_guide(value: &str) -> Option<UprightGuide> {
 
 const IDENTITY: [[f32; 3]; 3] = [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]];
 
-/// Shortest Straighten ruler, in points, that sets an angle: a click or a slip of the
-/// pointer is not a line.
-pub const MIN_RULER: f32 = 10.;
-
-/// The Straighten angle that makes the ruler drawn from `from` to `to` on the photo as
-/// shown level or, when it is nearer upright, plumb; `current` is the angle the photo is
-/// shown at. None for a ruler too short to go by. Positions are in screen points, y down.
-pub fn ruler_angle(from: [f32; 2], to: [f32; 2], current: f32) -> Option<f32> {
-    let d = [to[0] - from[0], to[1] - from[1]];
-    if d[0].hypot(d[1]) < MIN_RULER {
-        return None;
-    }
-    // The ruler's angle, clockwise from level, folded to within a quarter turn of it.
-    let angle = d[1].atan2(d[0]).to_degrees();
-    let off = (angle + 45.).rem_euclid(90.) - 45.;
-    // Straighten turns the photo clockwise, so turning it back by `off` levels the line.
-    Some((current - off).clamp(-45., 45.))
-}
-
 #[cfg(test)]
 mod upright_tests {
     use super::*;

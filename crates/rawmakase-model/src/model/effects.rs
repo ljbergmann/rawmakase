@@ -77,36 +77,12 @@ pub struct Effects {
     pub chroma_detail: f32,
     pub chroma_smoothness: f32,
 }
-impl Effects {
-    /// Where the parametric curve's region splits start, as in Lightroom.
-    pub const DEFAULT_SPLITS: [f32; 3] = [0.25, 0.5, 0.75];
-
-    /// Moves split `i` (0 to 2) to `t`, at least 0.05 from its neighbours
-    /// and the ends, as Lightroom's handles keep them.
-    pub fn move_split(&mut self, i: usize, t: f32) {
-        if i > 2 {
-            return;
-        }
-        let lo = if i == 0 {
-            0.05
-        } else {
-            self.splits[i - 1] + 0.05
-        };
-        let hi = if i == 2 {
-            0.95
-        } else {
-            self.splits[i + 1] - 0.05
-        };
-        self.splits[i] = t.clamp(lo, hi);
-    }
-}
-
 impl Default for Effects {
     fn default() -> Self {
         Self {
             channels: std::array::from_fn(|_| ToneCurve::default()),
             parametric: [0.; 4],
-            splits: Self::DEFAULT_SPLITS,
+            splits: [0.25, 0.5, 0.75],
             calibration: [[0.; 2]; 3],
             shadow_tint: 0.,
             monochrome: false,
@@ -214,20 +190,6 @@ impl Effects {
 
 #[cfg(test)]
 mod tests {
-
-    #[test]
-    fn a_split_stays_between_its_neighbours_and_the_ends() {
-        let mut e = Effects::default();
-        e.move_split(1, 0.9);
-        assert_eq!(e.splits[1], 0.7, "short of the next split");
-        e.move_split(0, 0.);
-        assert_eq!(e.splits[0], 0.05);
-        e.move_split(2, 1.);
-        assert_eq!(e.splits[2], 0.95);
-        e.move_split(3, 0.5);
-        assert_eq!(e.splits, [0.05, 0.7, 0.95], "no fourth split");
-    }
-
     use super::*;
 
     #[test]

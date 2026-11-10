@@ -13,10 +13,10 @@ use crate::app::ui::theme;
 use crate::app::ui::widgets::{
     SliderStyle, set_edit_context, setting_slider, slider_styled, slider_with,
 };
-use crate::model::grading::{HueSat, round_saturation, wheel_step};
 use crate::model::params::ParameterId;
 use crate::model::recipe::Recipe;
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2};
+use std::f32::consts::TAU;
 
 /// What the panel shows: the three tonal wheels, or one wheel large.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -278,17 +278,59 @@ fn single(ui: &mut egui::Ui, step: &mut StepName, r: &mut Recipe, region: Region
     });
 }
 
-/// Where `hue` points on a wheel, a radius long, as [`HueSat::direction`].
-fn wheel_direction(hue: f32) -> Vec2 {
-    HueSat::direction(hue).into()
+/// A wheel's color: hue 0–1 (red at the right, turning counter-clockwise as on
+/// Lightroom's wheels) and saturation 0–1 (the centre to the rim).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct HueSat {
+    hue: f32,
+    saturation: f32,
 }
-/// Where `color`'s puck sits, as [`HueSat::offset`].
-fn puck_offset(color: HueSat) -> Vec2 {
-    color.offset().into()
+
+impl HueSat {
+    const NEUTRAL: HueSat = HueSat {
+        hue: 0.,
+        saturation: 0.,
+    };
+    fn of(grade: &[f32; 3]) -> Self {
+        Self {
+            hue: grade[0],
+            saturation: grade[1],
+        }
+    }
+    fn store(self, grade: &mut [f32; 3]) {
+        grade[0] = self.hue;
+        grade[1] = self.saturation;
+    }
+    /// The direction of this hue, a wheel radius long, y down as on screen.
+    fn direction(hue: f32) -> Vec2 {
+        let angle = hue * TAU;
+        Vec2::new(angle.cos(), -angle.sin())
+    }
+    /// Where the puck sits, in wheel radii from the centre.
+    fn offset(self) -> Vec2 {
+        Self::direction(self.hue) * self.saturation
+    }
+    /// The color at `offset` (in radii, clamped to the rim), in whole degrees and
+    /// percent as Lightroom keeps them. At the centre, where every hue looks the
+    /// same, `hue` stays.
+    fn at(offset: Vec2, hue: f32) -> Self {
+        let hue = if offset.length() < 1e-4 {
+            hue
+        } else {
+            round_hue((-offset.y).atan2(offset.x) / TAU)
+        };
+        Self {
+            hue,
+            saturation: round_saturation(offset.length()),
+        }
+    }
 }
-/// The color at `offset`, as [`HueSat::at`].
-fn color_at(offset: Vec2, hue: f32) -> HueSat {
-    HueSat::at([offset.x, offset.y], hue)
+/// A hue in whole degrees, 0 to 359.
+fn round_hue(hue: f32) -> f32 {
+    (hue.rem_euclid(1.) * 360.).round() % 360. / 360.
+}
+fn round_saturation(saturation: f32) -> f32 {
+    (saturation.clamp(0., 1.) * 100.).round() / 100.
 }
 
 /// How a drag moves the puck: with the pointer, or a tenth as far (Cmd/Ctrl).
@@ -351,10 +393,10 @@ impl WheelDrag {
         }
         if constraint == Constraint::Free {
             self.lock = None;
-            return color_at(self.puck, self.start.hue);
+            return HueSat::at(self.puck, self.start.hue);
         }
-        let direction = wheel_direction(self.start.hue);
-        let moved = self.puck - puck_offset(self.start);
+        let direction = HueSat::direction(self.start.hue);
+        let moved = self.puck - self.start.offset();
         if self.lock.is_none() && moved.length() > LOCK_DISTANCE {
             let along = moved.dot(direction).abs();
             let across = moved.dot(direction.rot90()).abs();
@@ -371,7 +413,7 @@ impl WheelDrag {
                 saturation: round_saturation(self.puck.dot(direction)),
             },
             Some(Lock::Hue) => HueSat {
-                hue: color_at(self.puck, self.start.hue).hue,
+                hue: HueSat::at(self.puck, self.start.hue).hue,
                 saturation: self.start.saturation,
             },
         }
@@ -463,12 +505,12 @@ fn wheel(ui: &mut egui::Ui, step: &mut StepName, rect: Rect, grade: &mut [f32; 3
         HueSat::NEUTRAL.store(grade);
         drag = None;
     } else if let Some(pointer) = response.interact_pointer_pos() {
-        let on_puck = |p: Pos2| (to_offset(p) - puck_offset(before)).length() * radius <= PUCK_GRAB;
+        let on_puck = |p: Pos2| (to_offset(p) - before.offset()).length() * radius <= PUCK_GRAB;
         let mut delta = response.drag_delta() / radius;
         // A plain click away from the puck moves it there, as in Lightroom.
         if response.clicked() && accepted && modifiers.is_none() && !on_puck(pointer) {
             click = Some(WheelClick {
-                color: color_at(to_offset(pointer), before.hue),
+                color: HueSat::at(to_offset(pointer), before.hue),
                 before: *grade,
                 deadline: now + ui.ctx().options(|o| o.input_options.max_double_click_delay),
                 frame,
@@ -482,7 +524,7 @@ fn wheel(ui: &mut egui::Ui, step: &mut StepName, rect: Rect, grade: &mut [f32; 3
             // A plain press away from the puck moves it there too; a press on it, or
             // with Shift or Cmd held, keeps its color to start from.
             let grab = if on_puck(origin) || !modifiers.is_none() {
-                puck_offset(before) - to_offset(origin)
+                before.offset() - to_offset(origin)
             } else {
                 Vec2::ZERO
             };
@@ -520,7 +562,7 @@ fn wheel(ui: &mut egui::Ui, step: &mut StepName, rect: Rect, grade: &mut [f32; 3
     });
     let after = HueSat::of(grade);
     if after != before {
-        let (name, value) = wheel_step(region.step(), start, after);
+        let (name, value) = wheel_step(region, start, after);
         step.name(name, value);
     }
     paint_disc(ui.painter(), center, radius, 72, 10);
@@ -531,7 +573,7 @@ fn wheel(ui: &mut egui::Ui, step: &mut StepName, rect: Rect, grade: &mut [f32; 3
         Stroke::new(1., theme::palette(ui.ctx()).tone(Tone::BAR)),
     );
     painter.circle_filled(center, 1.5, Color32::from_gray(150));
-    let puck = center + puck_offset(after) * radius;
+    let puck = center + after.offset() * radius;
     let active = response.hovered() || response.dragged();
     painter.circle(
         puck,
@@ -549,6 +591,22 @@ fn wheel(ui: &mut egui::Ui, step: &mut StepName, rect: Rect, grade: &mut [f32; 3
             "Ctrl"
         },
     ));
+}
+
+/// History's name for a wheel edit from `start` to `end`: "Shadow Hue", "Shadow
+/// Saturation", or both when the puck moved both ways.
+fn wheel_step(region: Region, start: HueSat, end: HueSat) -> (String, String) {
+    let hue = format!("{:.0}", end.hue * 360.);
+    let saturation = format!("{:.0}", end.saturation * 100.);
+    let step = region.step();
+    match (start.hue != end.hue, start.saturation != end.saturation) {
+        (true, false) => (format!("{step} Hue"), hue),
+        (false, true) => (format!("{step} Saturation"), saturation),
+        _ => (
+            format!("{step} Hue & Saturation"),
+            format!("{hue} / {saturation}"),
+        ),
+    }
 }
 
 /// A wheel's hue and saturation as typed or dragged numbers, centred in `rect`.
@@ -749,7 +807,7 @@ fn paint_disc(painter: &egui::Painter, center: Pos2, radius: f32, sectors: u32, 
         for sector in 0..sectors {
             let hue = sector as f32 / sectors as f32;
             mesh.colored_vertex(
-                center + wheel_direction(hue) * radius * saturation,
+                center + HueSat::direction(hue) * radius * saturation,
                 hue_color(hue, saturation),
             );
         }
@@ -777,9 +835,9 @@ mod tests {
             hue: 0.,
             saturation: 1.,
         };
-        assert!((puck_offset(red) - Vec2::new(1., 0.)).length() < 1e-6);
+        assert!((red.offset() - Vec2::new(1., 0.)).length() < 1e-6);
         // 90° (yellow-green) is straight up: y points down on screen.
-        let up = color_at(Vec2::new(0., -0.5), 0.);
+        let up = HueSat::at(Vec2::new(0., -0.5), 0.);
         assert_eq!(
             up,
             HueSat {
@@ -788,7 +846,7 @@ mod tests {
             }
         );
         // Whole degrees and percent, as Lightroom stores them, and the rim at most.
-        let blue = color_at(wheel_direction(210.4 / 360.) * 1.7, 0.);
+        let blue = HueSat::at(HueSat::direction(210.4 / 360.) * 1.7, 0.);
         assert_eq!(
             blue,
             HueSat {
@@ -797,7 +855,7 @@ mod tests {
             }
         );
         // At the centre the hue stays.
-        assert_eq!(color_at(Vec2::ZERO, 0.6).hue, 0.6);
+        assert_eq!(HueSat::at(Vec2::ZERO, 0.6).hue, 0.6);
     }
 
     #[test]
@@ -807,7 +865,7 @@ mod tests {
             saturation: 0.5,
         };
         // Outwards along red: saturation only, however the pointer wanders after.
-        let mut drag = WheelDrag::new(start, puck_offset(start), Vec2::ZERO);
+        let mut drag = WheelDrag::new(start, start.offset(), Vec2::ZERO);
         let pointer = Vec2::new(0.8, 0.);
         let end = drag.update(
             pointer,
@@ -830,7 +888,7 @@ mod tests {
         );
         assert_eq!((end.hue, end.saturation), (0., 0.8));
         // Across the radius: hue only.
-        let mut drag = WheelDrag::new(start, puck_offset(start), Vec2::ZERO);
+        let mut drag = WheelDrag::new(start, start.offset(), Vec2::ZERO);
         let end = drag.update(
             Vec2::new(0.5, -0.2),
             Vec2::new(0., -0.2),
@@ -840,7 +898,7 @@ mod tests {
         assert_eq!(end.saturation, 0.5);
         assert!(end.hue > 0.05 && end.hue < 0.07, "{end:?}");
         // Fine: a tenth of the pointer's movement.
-        let mut drag = WheelDrag::new(start, puck_offset(start), Vec2::ZERO);
+        let mut drag = WheelDrag::new(start, start.offset(), Vec2::ZERO);
         let end = drag.update(
             Vec2::new(0.8, 0.),
             Vec2::new(0.3, 0.),
@@ -937,7 +995,7 @@ mod tests {
         let mut h = Harness::new();
         let mut grade = [0., 0., 0.25];
         // A press away from the puck moves it there, then it follows the pointer.
-        let target = wheel_direction(210. / 360.) * 0.4;
+        let target = HueSat::direction(210. / 360.) * 0.4;
         let step = h.drag(
             &mut grade,
             &[Vec2::new(0., -0.5), target * 0.5, target],
@@ -1169,7 +1227,7 @@ mod tests {
         let mut grade = [0.; 3];
         h.drag(
             &mut grade,
-            &[Vec2::ZERO, wheel_direction(40. / 360.) * 0.25],
+            &[Vec2::ZERO, HueSat::direction(40. / 360.) * 0.25],
             egui::Modifiers::NONE,
         );
         let mut dragged = Recipe::default();
