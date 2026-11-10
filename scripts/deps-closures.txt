@@ -8,3 +8,4 @@
 # formats, the RAW decoders, the catalog or the app, and decoding crates/rawmakase-decode. A rule may
 # name a module the app re-exports from those crates: the app crate depends on
 # all of them, so only this check keeps an app module from using one.
+edit_session never raw photo develop decode decode_cache app

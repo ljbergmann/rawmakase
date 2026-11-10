@@ -46,7 +46,7 @@ split and catalog-only editing:
 | `crates/rawmakase-model/src/storage/bitmaps.rs` | Bounded compressed rasters; two FNV hashes form the content ID | Checked arithmetic, validated mask format and immutable decoded assets |
 | `crates/rawmakase-catalog/src/catalog/edits.rs` | Bitmap insertion; retrieval is test-only | Production batch retrieval and asset-aware saves |
 | `crates/rawmakase-catalog/src/catalog/edit_rows.rs` | Authoritative edit/history writes | Save raster dependencies with references in one transaction |
-| `crates/rawmakase-edit-session/src/lib.rs` | Edits, history and dirty state coordinated by session operations | Atomic installation of generated masks and their in-memory assets |
+| `src/edit_session/mod.rs` | Edits, history and dirty state coordinated by session operations | Atomic installation of generated masks and their in-memory assets |
 | `src/app/develop/tools/mask_tool.rs` | Creation, composition, corrections, sliders, overlay | Generation controls and result application |
 | `src/app/task.rs`, `src/app/worker/latest.rs` | Cancellation, generations and bounded worker patterns | Dedicated inference lifecycle using these patterns |
 | `crates/rawmakase-export/src/export/job.rs` | Captured image and recipe for export | Capture referenced asset IDs and unsaved leases; resolve before rendering |

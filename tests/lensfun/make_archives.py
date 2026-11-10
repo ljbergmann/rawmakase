@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Writes the synthetic Lensfun database archives the installer's tests read
-(crates/rawmakase-lensfun/src/tests.rs): made-up lenses in Lensfun's format, packed as
+(src/lensfun_install/tests.rs): made-up lenses in Lensfun's format, packed as
 Lensfun publishes its database (a flat .tar.bz2 whose files are dated with the
 database's timestamp), and archives that must be refused.
 
-    python3 crates/rawmakase-lensfun/tests/lensfun/make_archives.py
+    python3 tests/lensfun/make_archives.py
 """
 import io
 import tarfile

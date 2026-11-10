@@ -1572,7 +1572,7 @@ mod rows;
 mod screen;
 mod selection;
 mod sidebar;
-use crate::catalog::sort;
+mod sort;
 mod stacks;
 mod stage;
 mod survey;

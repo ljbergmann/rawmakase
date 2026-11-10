@@ -22,8 +22,8 @@
 //!
 //! The database is CC BY-SA 3.0 (Lensfun contributors); the license text ships in
 //! `licenses/` and the app shows it with the source before downloading.
+use crate::lens::lensfun::installed::{self, MANIFEST, Manifest};
 use anyhow::{Context, Result, bail, ensure};
-use rawmakase_model::lens::lensfun::installed::{self, MANIFEST, Manifest};
 use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -31,7 +31,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 pub const VERSIONS_URL: &str = "https://lensfun.github.io/db/versions.json";
-pub const ARCHIVE_URL: &str = rawmakase_model::lens::lensfun::choice::SOURCE_URL;
+pub const ARCHIVE_URL: &str = crate::lens::lensfun::choice::SOURCE_URL;
 /// The database format this release reads.
 pub const FORMAT: u64 = 2;
 /// Largest archive downloaded, `versions.json` read, and unpacked total.
@@ -166,7 +166,7 @@ pub fn install(dir: &Path, source: &Source, progress: &Progress) -> Result<Insta
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect(),
-        downloaded: rawmakase_model::time::now_text(),
+        downloaded: crate::time::now_text(),
         lenses: unpacked.db.lenses.len(),
         cameras: unpacked.db.cameras.len(),
     };
@@ -192,7 +192,7 @@ pub fn remove(dir: &Path, progress: &Progress) -> Result<bool> {
     if was {
         std::fs::remove_file(&manifest)
             .with_context(|| format!("Could not remove {}", manifest.display()))?;
-        let _ = rawmakase_model::storage::sync_dir(dir);
+        let _ = crate::storage::sync_dir(dir);
     }
     // Every version, now that none is named; a reader that had just read the
     // manifest finds none and reads nothing.
@@ -216,7 +216,7 @@ pub fn current(dir: &Path) -> Option<Manifest> {
 struct Unpacked {
     version: i64,
     files: Vec<(String, Vec<u8>)>,
-    db: rawmakase_model::lens::lensfun::Database,
+    db: crate::lens::lensfun::Database,
 }
 
 /// The archive's files, within the limits, each one a Lensfun database. Its
@@ -302,7 +302,7 @@ fn unpack(archive: &[u8], progress: &Progress) -> Result<Unpacked> {
                 .with_context(|| format!("{n} isn't UTF-8"))
         })
         .collect::<Result<_>>()?;
-    let db = rawmakase_model::lens::lensfun::Database::from_texts(
+    let db = crate::lens::lensfun::Database::from_texts(
         texts.iter().map(|(n, t)| (n.as_str(), t.as_str())),
     )?;
     ensure!(
@@ -370,11 +370,11 @@ fn publish(
                 std::io::Write::write_all(&mut f, bytes)?;
                 f.sync_all()?;
             }
-            let _ = rawmakase_model::storage::sync_dir(&staging);
+            let _ = crate::storage::sync_dir(&staging);
             progress.check()?;
             std::fs::rename(&staging, &target)
                 .with_context(|| format!("Could not publish {}", target.display()))?;
-            let _ = rawmakase_model::storage::sync_dir(dir);
+            let _ = crate::storage::sync_dir(dir);
             Ok(())
         })();
         if let Err(e) = written {
@@ -393,7 +393,7 @@ fn publish(
         .persist(dir.join(MANIFEST))
         .map_err(|e| e.error)
         .context("Could not record the installed version")?;
-    let _ = rawmakase_model::storage::sync_dir(dir);
+    let _ = crate::storage::sync_dir(dir);
     Ok(())
 }
 

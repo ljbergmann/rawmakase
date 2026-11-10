@@ -4,7 +4,7 @@ use crate::app::ui::theme;
 use crate::catalog::Photo;
 use eframe::egui::{self, Color32, Key};
 
-pub(crate) use crate::catalog::sort::LABELS;
+pub(crate) const LABELS: [&str; 5] = ["Red", "Yellow", "Green", "Blue", "Purple"];
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Edit {
     Rating(i32),

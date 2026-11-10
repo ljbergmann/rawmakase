@@ -1,21 +1,21 @@
 //! Bounded edit history; a pointer gesture is a single transaction. Each step
 //! is named, like Lightroom's History panel ("Exposure +0.50").
-use rawmakase_model::model::recipe::Recipe;
-use rawmakase_model::model::saved_history::{SavedHistory, SavedStep};
+use crate::model::recipe::Recipe;
+use crate::model::saved_history::{SavedHistory, SavedStep};
 use std::collections::VecDeque;
 
 const LIMIT: usize = 100;
 
 /// A History panel entry: what changed, and its new value when there is one.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct Step {
+pub(crate) struct Step {
     pub name: String,
     pub value: String,
     /// Identifies the state this step leaves, set when it is recorded.
     state: u64,
 }
 impl Step {
-    pub fn new(name: impl Into<String>, value: impl Into<String>) -> Self {
+    pub(crate) fn new(name: impl Into<String>, value: impl Into<String>) -> Self {
         Self {
             name: name.into(),
             value: value.into(),
@@ -29,7 +29,7 @@ impl Step {
 /// state that is, since after undoing and editing the same count can name
 /// another branch.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Mark {
+pub(crate) struct Mark {
     applied: usize,
     state: u64,
 }
@@ -37,7 +37,7 @@ pub struct Mark {
 /// A change to the recipe for the shared undo log: a recorded step or a
 /// click in the History panel, with the History positions around it.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Recorded {
+pub(crate) struct Recorded {
     /// Orders it among Library commands made in the same frame.
     pub sequence: u64,
     pub before: Recipe,
@@ -46,7 +46,7 @@ pub struct Recorded {
     pub at_after: Mark,
 }
 
-pub struct History {
+pub(crate) struct History {
     /// Tells this photo's History apart from earlier ones, e.g. after the
     /// photo was opened again.
     id: u64,
@@ -92,7 +92,7 @@ impl History {
     ///
     /// A drag still in progress is saved as the step it will become, without being
     /// recorded yet, so a save that fails leaves the drag going.
-    pub fn saved(&self, current: &Recipe) -> SavedHistory {
+    pub(crate) fn saved(&self, current: &Recipe) -> SavedHistory {
         let gesture = self.gesture.as_ref().filter(|before| *before != current);
         let mut done: Vec<_> = self
             .undo
@@ -132,7 +132,7 @@ impl History {
     /// History restored from `saved` for an edit now at `current`. When the edit was
     /// changed since (Undo after moving to another photo, or a sidecar import), that change
     /// becomes the latest step, as Lightroom adds one.
-    pub fn restored(saved: SavedHistory, current: &Recipe) -> Self {
+    pub(crate) fn restored(saved: SavedHistory, current: &Recipe) -> Self {
         let mut history = Self::default();
         let SavedHistory {
             origin,
@@ -172,22 +172,22 @@ impl History {
         }
         history
     }
-    pub fn id(&self) -> u64 {
+    pub(crate) fn id(&self) -> u64 {
         self.id
     }
     /// The state applied now.
-    pub fn mark(&self) -> Mark {
+    pub(crate) fn mark(&self) -> Mark {
         Mark {
             applied: self.dropped + self.undo.len(),
             state: self.undo.back().map_or(self.origin, |(_, s)| s.state),
         }
     }
     /// The changes made since the last call, for the shared undo log.
-    pub fn take_recorded(&mut self) -> Vec<Recorded> {
+    pub(crate) fn take_recorded(&mut self) -> Vec<Recorded> {
         std::mem::take(&mut self.recorded)
     }
     /// A click on a History step: `go_to`, recorded as one change.
-    pub fn jump(&mut self, applied: usize, current: &mut Recipe) -> bool {
+    pub(crate) fn jump(&mut self, applied: usize, current: &mut Recipe) -> bool {
         let (before, at_before) = (current.clone(), self.mark());
         if !self.go_to(applied, current) {
             return false;
@@ -203,7 +203,7 @@ impl History {
     }
     /// Undo or redo from the shared log: back to state `at` when it is still
     /// here; otherwise `target` is set as a new step named `step`.
-    pub fn restore(&mut self, at: Mark, target: &Recipe, current: &mut Recipe, step: Step) {
+    pub(crate) fn restore(&mut self, at: Mark, target: &Recipe, current: &mut Recipe, step: Step) {
         // Not an edit of the user's for `observe` to record.
         self.replaying = true;
         // History's own states are kept up to date (e.g. by Upright's
@@ -232,18 +232,18 @@ impl History {
     }
     /// Sets `target` as a new step named `step`, without handing it to the
     /// shared undo log.
-    pub fn set(&mut self, target: &Recipe, current: &mut Recipe, step: Step) {
+    pub(crate) fn set(&mut self, target: &Recipe, current: &mut Recipe, step: Step) {
         self.replaying = true;
         let before = std::mem::replace(current, target.clone());
         self.label(step);
         self.push(before, current);
     }
     /// Names the step being made, e.g. by the slider being dragged.
-    pub fn label(&mut self, step: Step) {
+    pub(crate) fn label(&mut self, step: Step) {
         self.label = Some(step);
     }
     /// Every step, oldest first, and how many of them are applied.
-    pub fn steps(&self) -> (Vec<&Step>, usize) {
+    pub(crate) fn steps(&self) -> (Vec<&Step>, usize) {
         let steps = self
             .undo
             .iter()
@@ -255,7 +255,7 @@ impl History {
     /// The edit at a History state, done or undone: `applied` steps applied, counted
     /// as `steps` lists them (0 is the oldest state kept), with `current` the state
     /// applied now. For Copy History Step Settings to Before.
-    pub fn state(&self, applied: usize, current: &Recipe) -> Option<Recipe> {
+    pub(crate) fn state(&self, applied: usize, current: &Recipe) -> Option<Recipe> {
         let now = self.undo.len();
         match applied.cmp(&now) {
             std::cmp::Ordering::Less => Some(self.undo[applied].0.clone()),
@@ -270,7 +270,7 @@ impl History {
     }
     /// Undoes or redoes until `applied` steps are applied, as clicking a
     /// History step in Lightroom does. Later steps stay until a new edit.
-    pub fn go_to(&mut self, applied: usize, current: &mut Recipe) -> bool {
+    pub(crate) fn go_to(&mut self, applied: usize, current: &mut Recipe) -> bool {
         let mut moved = false;
         while self.undo.len() > applied && self.undo(current) {
             moved = true;
@@ -280,34 +280,34 @@ impl History {
         }
         moved
     }
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn can_undo(&self) -> bool {
+    #[cfg(test)]
+    pub(crate) fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn can_redo(&self) -> bool {
+    #[cfg(test)]
+    pub(crate) fn can_redo(&self) -> bool {
         !self.redo.is_empty()
     }
-    pub fn in_gesture(&self) -> bool {
+    pub(crate) fn in_gesture(&self) -> bool {
         self.gesture.is_some()
     }
     /// Records a pointer gesture still in progress, up to `current`, so a step made
     /// outside the UI (an asynchronous result) lands after it; the rest of the drag
     /// becomes a step of its own.
-    pub fn finish_gesture(&mut self, current: &Recipe) {
+    pub(crate) fn finish_gesture(&mut self, current: &Recipe) {
         if let Some(before) = self.gesture.take() {
             self.record(before, current);
         }
     }
     /// Undo, redo or a History click changed the recipe this frame, not an edit.
-    pub fn is_replaying(&self) -> bool {
+    pub(crate) fn is_replaying(&self) -> bool {
         self.replaying
     }
-    pub fn begin_frame(&mut self) {
+    pub(crate) fn begin_frame(&mut self) {
         self.replaying = false;
     }
 
-    pub fn record(&mut self, before: Recipe, after: &Recipe) -> bool {
+    pub(crate) fn record(&mut self, before: Recipe, after: &Recipe) -> bool {
         let at_before = self.mark();
         let recorded = before.clone();
         if !self.push(before, after) {
@@ -340,7 +340,7 @@ impl History {
         self.redo.clear();
         true
     }
-    pub fn undo(&mut self, current: &mut Recipe) -> bool {
+    pub(crate) fn undo(&mut self, current: &mut Recipe) -> bool {
         self.replaying = true;
         self.gesture = None;
         let Some((previous, step)) = self.undo.pop_back() else {
@@ -349,7 +349,7 @@ impl History {
         self.redo.push((std::mem::replace(current, previous), step));
         true
     }
-    pub fn redo(&mut self, current: &mut Recipe) -> bool {
+    pub(crate) fn redo(&mut self, current: &mut Recipe) -> bool {
         self.replaying = true;
         self.gesture = None;
         let Some((next, step)) = self.redo.pop() else {
@@ -361,7 +361,7 @@ impl History {
     }
     /// Every recorded state, to update what is derived from the photo rather than
     /// edited, such as Upright's analysis.
-    pub fn states_mut(&mut self) -> impl Iterator<Item = &mut Recipe> {
+    pub(crate) fn states_mut(&mut self) -> impl Iterator<Item = &mut Recipe> {
         self.undo
             .iter_mut()
             .chain(self.redo.iter_mut())
@@ -369,7 +369,7 @@ impl History {
             .chain(self.gesture.as_mut())
     }
     /// Observe UI edits after drawing. Undo/redo must not create a new undo entry.
-    pub fn observe(&mut self, before: Recipe, after: &Recipe, pointer_down: bool) -> bool {
+    pub(crate) fn observe(&mut self, before: Recipe, after: &Recipe, pointer_down: bool) -> bool {
         let changed = before != *after;
         if changed && !self.replaying {
             if pointer_down {
@@ -389,10 +389,7 @@ impl History {
 fn describe(before: &Recipe, after: &Recipe) -> Step {
     let (b, a) = (before, after);
     if a.preset_name != b.preset_name && !a.preset_name.is_empty() {
-        return Step::new(
-            "Preset",
-            rawmakase_interop::presets::display_name(&a.preset_name),
-        );
+        return Step::new("Preset", crate::presets::display_name(&a.preset_name));
     }
     let profile = |r: &Recipe| r.profile.as_ref().map(|p| p.name.clone());
     if profile(a) != profile(b) {
@@ -481,7 +478,7 @@ fn describe(before: &Recipe, after: &Recipe) -> Step {
 
 /// Lightroom names a panel switch "Enable Tone Curve", "Yes" or "No".
 fn panel_switch_step(before: &Recipe, after: &Recipe) -> Step {
-    use rawmakase_model::model::panels::{Panel, PanelState};
+    use crate::model::panels::{Panel, PanelState};
     let Some(panel) = Panel::ALL
         .into_iter()
         .find(|p| after.panels.state(*p) != before.panels.state(*p))
@@ -514,7 +511,7 @@ fn red_eye_step(before: &Recipe, after: &Recipe) -> String {
     let (b, a) = (&before.red_eye, &after.red_eye);
     // The first correction that differs, from the list that has it.
     let changed = (0..a.len().max(b.len())).find(|i| a.get(*i) != b.get(*i));
-    let kind = |list: &[rawmakase_model::model::red_eye::RedEyeOp]| {
+    let kind = |list: &[crate::model::red_eye::RedEyeOp]| {
         changed.and_then(|i| list.get(i)).map(|op| op.kind)
     };
     let (verb, kind) = match a.len().cmp(&b.len()) {
@@ -527,7 +524,7 @@ fn red_eye_step(before: &Recipe, after: &Recipe) -> String {
 }
 /// Lightroom names spot edits by mode: "Spot Removal", "Clone", "Delete Spot".
 fn retouch_step(before: &Recipe, after: &Recipe) -> &'static str {
-    use rawmakase_model::model::retouch::RetouchMode;
+    use crate::model::retouch::RetouchMode;
     if after.retouch.len() < before.retouch.len() {
         return "Delete Spot";
     }
@@ -596,7 +593,7 @@ mod tests {
     use super::*;
     #[test]
     fn a_panel_switch_is_one_step_named_as_lightroom_names_it() {
-        use rawmakase_model::model::panels::{Panel, PanelState};
+        use crate::model::panels::{Panel, PanelState};
         let mut history = History::default();
         let mut recipe = Recipe::default();
         let before = recipe.clone();
@@ -686,7 +683,7 @@ mod tests {
     }
     #[test]
     fn red_and_pet_eye_edits_have_lightroom_names() {
-        use rawmakase_model::model::red_eye::{EyeKind, RedEyeOp};
+        use crate::model::red_eye::{EyeKind, RedEyeOp};
         let eye = |kind| RedEyeOp {
             kind,
             center: [0.5, 0.5],
@@ -713,24 +710,22 @@ mod tests {
     fn retouch_and_mask_edits_have_lightroom_names() {
         let before = Recipe::default();
         let mut after = before.clone();
-        after
-            .retouch
-            .push(rawmakase_model::model::retouch::RetouchOp {
-                mode: rawmakase_model::model::retouch::RetouchMode::Heal,
-                shape: rawmakase_model::model::retouch::RetouchShape::Spot {
-                    center: [0.5, 0.5],
-                    radius: 0.01,
-                },
-                feather: 0.5,
-                opacity: 1.,
-                offset: [0.02, 0.],
-            });
+        after.retouch.push(crate::model::retouch::RetouchOp {
+            mode: crate::model::retouch::RetouchMode::Heal,
+            shape: crate::model::retouch::RetouchShape::Spot {
+                center: [0.5, 0.5],
+                radius: 0.01,
+            },
+            feather: 0.5,
+            opacity: 1.,
+            offset: [0.02, 0.],
+        });
         assert_eq!(describe(&before, &after).name, "Spot Removal");
         assert_eq!(describe(&after, &before).name, "Delete Spot");
         let mut masked = before.clone();
-        masked.masks.push(rawmakase_model::model::masks::MaskGroup {
-            components: vec![rawmakase_model::model::masks::MaskComponent::new(
-                rawmakase_model::model::masks::MaskShape::Brush {
+        masked.masks.push(crate::model::masks::MaskGroup {
+            components: vec![crate::model::masks::MaskComponent::new(
+                crate::model::masks::MaskShape::Brush {
                     strokes: Vec::new(),
                 },
             )],

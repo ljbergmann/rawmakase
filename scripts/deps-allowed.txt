@@ -3,6 +3,8 @@
 # fits the layering in docs/architecture.md.
 app -> catalog_session
 app -> diagnostics
+app -> edit_session
+app -> lensfun_install
 app -> platform
 app -> updates
 catalog_session -> platform

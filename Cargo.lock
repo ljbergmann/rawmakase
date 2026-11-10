@@ -3694,6 +3694,7 @@ dependencies = [
  "anyhow",
  "base64 0.23.1",
  "block2 0.6.2",
+ "bzip2-rs",
  "clap",
  "dispatch2",
  "eframe",
@@ -3719,13 +3720,11 @@ dependencies = [
  "rawmakase-catalog",
  "rawmakase-ctl",
  "rawmakase-decode",
- "rawmakase-edit-session",
  "rawmakase-engine",
  "rawmakase-export",
  "rawmakase-fs",
  "rawmakase-inference",
  "rawmakase-interop",
- "rawmakase-lensfun",
  "rawmakase-model",
  "rawmakase-protocol",
  "rawmakase-remote",
@@ -3737,6 +3736,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tar",
  "tempfile",
  "tiff",
  "tokio",
@@ -3833,14 +3833,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rawmakase-edit-session"
-version = "0.1.0"
-dependencies = [
- "rawmakase-interop",
- "rawmakase-model",
-]
-
-[[package]]
 name = "rawmakase-engine"
 version = "0.1.0"
 dependencies = [
@@ -3920,20 +3912,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
-]
-
-[[package]]
-name = "rawmakase-lensfun"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bzip2-rs",
- "rawmakase-model",
- "serde_json",
- "sha2",
- "tar",
- "tempfile",
- "ureq",
 ]
 
 [[package]]

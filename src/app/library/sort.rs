@@ -1,16 +1,14 @@
-//! Lightroom's sort orders for a grid of photos. Photos come from the
+//! Lightroom's sort orders for the grid and filmstrip. Photos come from the
 //! catalog in capture order; another order sorts them by its key, stably,
 //! so photos alike in it stay in capture order. Edit time and aspect ratio
 //! are not on `Photo` and are read from the catalog as they are needed.
-use super::{Catalog, Photo, PhotoId};
+use crate::app::library::photo_metadata::LABELS;
+use crate::catalog::{Catalog, Photo, PhotoId};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-/// Lightroom's colour labels, in its order.
-pub const LABELS: [&str; 5] = ["Red", "Yellow", "Green", "Blue", "Purple"];
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Sort {
+pub(super) enum Sort {
     #[default]
     CaptureTime,
     AddedOrder,
@@ -24,7 +22,7 @@ pub enum Sort {
     AspectRatio,
 }
 impl Sort {
-    pub const ALL: [Self; 10] = [
+    pub(super) const ALL: [Self; 10] = [
         Self::CaptureTime,
         Self::AddedOrder,
         Self::EditTime,
@@ -36,7 +34,7 @@ impl Sort {
         Self::Extension,
         Self::AspectRatio,
     ];
-    pub fn name(self) -> &'static str {
+    pub(super) fn name(self) -> &'static str {
         match self {
             Self::CaptureTime => "Capture Time",
             Self::AddedOrder => "Added Order",
@@ -51,7 +49,7 @@ impl Sort {
         }
     }
     /// Reads what this order needs beyond `Photo` from the catalog.
-    pub fn keys(self, catalog: &Catalog) -> Keys {
+    pub(super) fn keys(self, catalog: &Catalog) -> Keys {
         match self {
             Self::EditTime => Keys::EditTimes(catalog.edit_times().unwrap_or_default()),
             Self::AspectRatio => Keys::Aspects(catalog.aspect_ratios().unwrap_or_default()),
@@ -60,7 +58,7 @@ impl Sort {
     }
     /// Sorts `indices` into `photos`, which are in capture order, by this
     /// order, either way; photos alike in it stay in capture order.
-    pub fn sort(self, photos: &[Photo], indices: &mut [usize], keys: &Keys, reverse: bool) {
+    pub(super) fn sort(self, photos: &[Photo], indices: &mut [usize], keys: &Keys, reverse: bool) {
         if self == Self::CaptureTime {
             if reverse {
                 indices.reverse();
@@ -115,7 +113,7 @@ impl Sort {
 
 /// What an order needs beyond `Photo`, by photo.
 #[derive(Debug, Default)]
-pub enum Keys {
+pub(super) enum Keys {
     #[default]
     None,
     EditTimes(HashMap<PhotoId, String>),

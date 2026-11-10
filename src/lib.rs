@@ -15,8 +15,7 @@
 //! [`ai_denoise`] is AI Denoise's service, shared by the app and the command line,
 //! and `model_install` installs the models it and the selection tools run (both
 //! crates/rawmakase-ai),
-//! `edit_session` (crates/rawmakase-edit-session) keeps an open photo's edits,
-//! history and saved state together,
+//! `edit_session` keeps an open photo's edits, history and saved state together,
 //! `catalog_session` holds the open catalog, [`comparison`] provides
 //! reference-image validation and `platform` isolates OS integration.
 //!
@@ -53,11 +52,9 @@ pub mod app;
 pub(crate) mod catalog_session;
 pub mod comparison;
 pub mod diagnostics;
-pub(crate) use rawmakase_edit_session as edit_session;
-// Installing Lensfun's lens database (crates/rawmakase-lensfun), shared with the
-// command line.
+pub(crate) mod edit_session;
+pub mod lensfun_install;
 pub(crate) use rawmakase_ai::model_install;
-pub use rawmakase_lensfun as lensfun_install;
 pub(crate) mod platform;
 /// For headless commands: whether a path's volume is mounted.
 pub use platform::volume::mounted as volume_mounted;

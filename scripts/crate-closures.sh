@@ -39,13 +39,11 @@ check() {
         status=1
     fi
 }
-for crate in rawmakase-cancel rawmakase-fs rawmakase-tiff rawmakase-model rawmakase-interop rawmakase-edit-session rawmakase-catalog rawmakase-protocol; do
+for crate in rawmakase-cancel rawmakase-fs rawmakase-tiff rawmakase-model rawmakase-interop rawmakase-catalog rawmakase-protocol; do
     check "$crate" "$leaf"
 done
 # AI Denoise's service runs the models and renders, but builds no GUI.
 check rawmakase-ai "rawmakase|rawmakase-catalog|rawmakase-export|$gui|$c_imaging"
-# Lensfun's installer downloads and unpacks in pure Rust: no GUI, GPU or C library.
-check rawmakase-lensfun "$leaf"
 check rawmakase-engine "rawmakase|rawmakase-catalog|rawmakase-export|$gui|$native|$inference"
 # The decoding boundary is Rust alone: nothing in it is built from C. rav1d (the
 # AV1 decoder for AVIF) lists cc and nasm-rs as build dependencies but uses them
