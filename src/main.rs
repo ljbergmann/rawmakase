@@ -954,7 +954,6 @@ fn main() -> Result<()> {
                 input,
                 model,
                 provider,
-                loader: None,
                 amount,
                 output,
                 plain_output,

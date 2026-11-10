@@ -98,7 +98,6 @@ fn main() -> ExitCode {
         runtime_library,
         threads,
         provider: Some(provider),
-        coreml: None,
     };
     let engine = match Model::load(&model_dir, &options) {
         Ok(engine) => engine,

@@ -5,23 +5,19 @@ use std::sync::mpsc;
 
 /// How the stand-in model behaves.
 #[derive(Default)]
-pub struct Behaviour {
+pub(crate) struct Behaviour {
     /// Tiles run, across all loads.
-    pub runs: AtomicUsize,
+    pub(crate) runs: AtomicUsize,
     /// Loads, per provider.
-    pub loads: Mutex<Vec<Provider>>,
+    pub(crate) loads: Mutex<Vec<Provider>>,
     /// A non-finite value from this run on, on a provider other than the CPU.
     gpu_poison_after: Option<usize>,
-    /// With `gpu_poison_after`: only on this provider.
-    poison_only: Option<Provider>,
-    /// Loading on this provider fails.
-    refuse_load: Option<Provider>,
     /// Panic on the first run.
     panic: bool,
     /// Never return from a run, whatever the cancel flag says.
     hang: bool,
     /// Held before each run.
-    pub gate: Mutex<()>,
+    pub(crate) gate: Mutex<()>,
     /// Panic when a loaded model is dropped, outside any job.
     panic_on_drop: bool,
 }
@@ -72,10 +68,6 @@ impl TileModel for Fake {
         if self.provider != Provider::Cpu
             && self
                 .behaviour
-                .poison_only
-                .is_none_or(|p| p == self.provider)
-            && self
-                .behaviour
                 .gpu_poison_after
                 .is_some_and(|after| n > after)
         {
@@ -85,23 +77,23 @@ impl TileModel for Fake {
     }
 }
 
-pub struct Fixture {
-    pub service: Service,
-    pub behaviour: Arc<Behaviour>,
-    pub dir: tempfile::TempDir,
+pub(crate) struct Fixture {
+    pub(crate) service: Service,
+    pub(crate) behaviour: Arc<Behaviour>,
+    pub(crate) dir: tempfile::TempDir,
 }
 
-pub const W: usize = 1000;
+pub(crate) const W: usize = 1000;
 
-pub const H: usize = 300;
+pub(crate) const H: usize = 300;
 
-pub fn mosaic() -> Vec<f32> {
+pub(crate) fn mosaic() -> Vec<f32> {
     (0..W * H)
         .map(|i| 0.1 + 0.6 * ((i * 7919) % 997) as f32 / 997.)
         .collect()
 }
 
-pub fn fixture(provider: Provider, behaviour: Behaviour) -> Fixture {
+pub(crate) fn fixture(provider: Provider, behaviour: Behaviour) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     let behaviour = Arc::new(behaviour);
     let source: Source = Arc::new(|path: &Path, _: Cancel<'_>| {
@@ -114,9 +106,6 @@ pub fn fixture(provider: Provider, behaviour: Behaviour) -> Fixture {
     let b = behaviour.clone();
     let loader: Loader = Arc::new(move |_: &Path, provider: Provider| {
         b.loads.lock().unwrap().push(provider);
-        if b.refuse_load == Some(provider) {
-            return Err(format!("no model for {}", provider.name()));
-        }
         Ok(Box::new(Fake {
             provider,
             behaviour: b.clone(),
@@ -140,14 +129,14 @@ pub fn fixture(provider: Provider, behaviour: Behaviour) -> Fixture {
 }
 
 impl Fixture {
-    pub fn photo(&self, name: &str) -> PathBuf {
+    pub(crate) fn photo(&self, name: &str) -> PathBuf {
         let path = self.dir.path().join(name);
         if !path.exists() {
             std::fs::write(&path, name.as_bytes()).unwrap();
         }
         path
     }
-    pub fn plain(&self) -> Arc<CameraImage> {
+    pub(crate) fn plain(&self) -> Arc<CameraImage> {
         let metadata = crate::camera_data::Metadata {
             wb: [2., 1., 1.5],
             ..Default::default()
@@ -165,7 +154,7 @@ impl Fixture {
         })
     }
     /// A Develop request whose updates arrive on the returned channel.
-    pub fn request(
+    pub(crate) fn request(
         &self,
         path: &Path,
         plain: &Arc<CameraImage>,
@@ -189,7 +178,6 @@ impl Fixture {
 }
 
 /// An export's request for `photo`, as decoded now.
-#[cfg(test)]
 fn export(
     service: &Service,
     photo: &Path,
@@ -205,7 +193,6 @@ fn export(
 }
 
 /// The states until the first final one.
-#[cfg(test)]
 fn until_final(rx: &mpsc::Receiver<State>) -> Vec<State> {
     let mut states = Vec::new();
     loop {
@@ -218,7 +205,7 @@ fn until_final(rx: &mpsc::Receiver<State>) -> Vec<State> {
     }
 }
 
-pub fn tiles() -> usize {
+pub(crate) fn tiles() -> usize {
     Grid::new(W.div_ceil(2), H.div_ceil(2)).tiles().len()
 }
 
@@ -324,100 +311,6 @@ fn a_gpu_failure_after_good_tiles_reruns_on_the_cpu_under_the_cpus_key() {
     let (rx, _wanted) = f.request(&photo, &plain, None);
     assert!(matches!(until_final(&rx).last(), Some(State::Ready(_))));
     assert_eq!(f.behaviour.runs.load(Ordering::SeqCst), runs);
-}
-
-#[test]
-fn a_neural_engine_failure_reruns_on_the_gpu_before_the_cpu() {
-    let f = fixture(
-        Provider::NeuralEngine,
-        Behaviour {
-            gpu_poison_after: Some(1),
-            poison_only: Some(Provider::NeuralEngine),
-            ..Default::default()
-        },
-    );
-    let photo = f.photo("a.raw");
-    let plain = f.plain();
-    let (rx, _wanted) = f.request(&photo, &plain, None);
-    assert!(matches!(until_final(&rx).last(), Some(State::Ready(_))));
-    assert_eq!(
-        *f.behaviour.loads.lock().unwrap(),
-        [Provider::NeuralEngine, Provider::CoreML]
-    );
-    let cache = f.service.cache();
-    assert!(cache.contains(&key(&photo, Provider::CoreML).unwrap()));
-    assert!(!cache.contains(&key(&photo, Provider::NeuralEngine).unwrap()));
-    // The next photo goes to the GPU at once.
-    let other = f.photo("b.raw");
-    let (rx, _wanted) = f.request(&other, &plain, None);
-    assert!(matches!(until_final(&rx).last(), Some(State::Ready(_))));
-    assert_eq!(
-        f.behaviour.loads.lock().unwrap().len(),
-        2,
-        "the GPU's model is reused"
-    );
-    assert!(cache.contains(&key(&other, Provider::CoreML).unwrap()));
-}
-
-#[test]
-fn a_model_that_will_not_load_on_the_neural_engine_runs_on_the_gpu() {
-    let f = fixture(
-        Provider::NeuralEngine,
-        Behaviour {
-            refuse_load: Some(Provider::NeuralEngine),
-            ..Default::default()
-        },
-    );
-    let photo = f.photo("a.raw");
-    let plain = f.plain();
-    let (rx, _wanted) = f.request(&photo, &plain, None);
-    assert!(matches!(until_final(&rx).last(), Some(State::Ready(_))));
-    assert_eq!(
-        *f.behaviour.loads.lock().unwrap(),
-        [Provider::NeuralEngine, Provider::CoreML]
-    );
-    assert!(
-        f.service
-            .cache()
-            .contains(&key(&photo, Provider::CoreML).unwrap())
-    );
-}
-
-#[test]
-fn a_model_that_will_not_load_on_the_cpu_fails_with_the_reason() {
-    let f = fixture(
-        Provider::Cpu,
-        Behaviour {
-            refuse_load: Some(Provider::Cpu),
-            ..Default::default()
-        },
-    );
-    let photo = f.photo("a.raw");
-    let plain = f.plain();
-    let (rx, _wanted) = f.request(&photo, &plain, None);
-    match until_final(&rx).last() {
-        Some(State::Failed(why)) => assert!(why.contains("no model for CPU"), "{why}"),
-        _ => panic!("expected a failure"),
-    }
-}
-
-#[test]
-fn a_neural_engine_result_is_kept_under_its_own_key_and_found_for_previews() {
-    let f = fixture(Provider::NeuralEngine, Behaviour::default());
-    let photo = f.photo("a.raw");
-    let plain = f.plain();
-    let (rx, _wanted) = f.request(&photo, &plain, None);
-    assert!(matches!(until_final(&rx).last(), Some(State::Ready(_))));
-    assert_eq!(*f.behaviour.loads.lock().unwrap(), [Provider::NeuralEngine]);
-    // Half precision is not the GPU's answer: neither result stands in for the other.
-    let cache = f.service.cache();
-    assert!(cache.contains(&key(&photo, Provider::NeuralEngine).unwrap()));
-    assert!(!cache.contains(&key(&photo, Provider::CoreML).unwrap()));
-    let identity = crate::storage::Identity::read(&photo).unwrap();
-    assert_eq!(
-        finished(cache, &identity),
-        Some(key(&photo, Provider::NeuralEngine).unwrap())
-    );
 }
 
 #[test]

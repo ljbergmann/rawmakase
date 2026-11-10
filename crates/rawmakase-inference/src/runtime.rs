@@ -151,7 +151,7 @@ pub enum CoreMLUnits {
 }
 
 /// How CoreML runs a graph: [`DENOISE_COREML`] for AI Denoise, ONNX Runtime's own
-/// defaults for the selection models; [`LoadOptions::coreml`] overrides either for
+/// defaults for the selection models; [`measure_with_coreml`] overrides either for
 /// measuring (docs/rendering-quality.md has what was measured).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CoreMLPlan {
@@ -197,9 +197,19 @@ pub struct LoadOptions {
     pub threads: Option<usize>,
     /// Hardware to ask for; `None` is the same as [`Provider::Cpu`].
     pub provider: Option<Provider>,
-    /// With [`Provider::CoreML`]: how CoreML runs the graphs, in place of the model's
-    /// own plan. For measuring; `None` everywhere else.
-    pub coreml: Option<CoreMLPlan>,
+}
+
+/// A CoreML plan that replaces every model's own with [`Provider::CoreML`], for
+/// measuring which runs best. Set with [`measure_with_coreml`]; `None`, the default,
+/// leaves each model its own plan.
+static COREML_OVERRIDE: std::sync::Mutex<Option<CoreMLPlan>> = std::sync::Mutex::new(None);
+
+/// Makes models loaded from now on run with CoreML as `plan` says, or with their own
+/// plan again for `None`. For measuring only: it holds for the whole process.
+pub fn measure_with_coreml(plan: Option<CoreMLPlan>) {
+    *COREML_OVERRIDE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = plan;
 }
 
 /// Threads for one inference: the available parallelism capped at 8. ONNX
@@ -445,7 +455,10 @@ fn providers_for(
     static_shapes: bool,
 ) -> Vec<ExecutionProviderDispatch> {
     let provider = options.provider.unwrap_or_default();
-    match (provider, options.coreml.or(plan)) {
+    let measured = *COREML_OVERRIDE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    match (provider, measured.or(plan)) {
         (Provider::CoreML, Some(plan)) => plan.providers(static_shapes),
         _ => provider.providers(),
     }

@@ -134,36 +134,12 @@ MS-SSIM over 5 scales), AI Denoise beat the best of manual Luminance 0, 25, 50 a
 frames (0.955 against 0.904; its losses at ISO 2500 or below, by at most 0.01), with no
 maze or grid at 100%. No tile was non-finite on the CPU or CoreML, which stays within
 1.2 × 10⁻⁶ (relative) of the CPU, so CoreML's GPU (an ML Program in single precision) is used on
-Apple Silicon: a 24 MP photo takes about 3.5 s there and 20 s on the CPU. An iPad (M1) is the
-same: a 45 MP photo's output within 1.1 × 10⁻⁶ of the CPU's, in 12.7 s against 39.9 s. Through
-ONNX Runtime its Neural Engine does not help (1.23, a Canon CR3, one run each, against the
-CPU's 42.6 s): asked for the Neural Engine with the GPU, CoreML runs the single-precision ML
-Program on the GPU (11.2 s against 11.9 s, the same output); with the CPU only, 22.1 s (within
-1.6 × 10⁻⁶); as a NeuralNetwork, CoreML takes none of the graph (the CPU's output exactly, in
-61–68 s). Safelight instead runs a half-precision Core ML conversion on the Neural Engine
-([`Provider::NeuralEngine`](../crates/rawmakase-inference/src/runtime.rs), its own cache key,
-loaded through `Service::with_loader`): every layer rescaled by a power of two so its values
-fit, each skip connection keeping its own scale. On the M1 iPad a tile takes 13 ms against
-56 ms on the GPU in half precision, and the photo's output is 89.7 dB from the CPU's (largest
-difference 1.5 × 10⁻³ after the gain), 3.4 s of denoising against 19.4 s on CoreML's GPU. Against Camera Raw 18.7's
+Apple Silicon: a 24 MP photo takes about 3.5 s there and 20 s on the CPU. Against Camera Raw 18.7's
 Denoise on five of those CC0 photos at Amount 50 and 100 (100% crops, side by side):
 similar at ISO 12,800–20,000 (Camera Raw keeps slightly more fine texture); behind at
 ISO 32,000 and above, where RawNIND leaves colour blotches in dark areas and Camera Raw
 keeps more detail, and on X-Trans, where the RGGB rebuild leaves the result softer and
 mottled beside Camera Raw's own X-Trans model.
-
-### Selection models on CoreML
-
-Select Subject, Sky and Background stay on the CPU, the iPad's too. Measured on an M1 iPad
-Pro (ONNX Runtime 1.23, a Canon CR3, the selection input the app makes): Subject takes
-2.3–2.8 s on the CPU. CoreML cannot load SAM 2's two graphs, whose weights are in separate
-`.onnx_data` files, on any plan; with only DETR's graph on CoreML the mask was the CPU's
-(IoU 1.0) and no faster as a NeuralNetwork (2.5–2.6 s), and as an ML Program it fails on a
-dimension CoreML fixed at 16. Sky takes 6.5–7.0 s on the CPU. As an ML Program, CoreML builds
-it only for the CPU and Neural Engine, and it is slower there (10 s, then 38 s); on the GPU
-it fails to build its plan, and as a NeuralNetwork compiling it takes the app past the
-iPad's per-process memory limit. The photo had no sky, so Sky's masks were compared only
-where both were empty.
 
 ## Tone and highlights
 

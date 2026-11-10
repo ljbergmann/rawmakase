@@ -9,8 +9,6 @@ pub struct Command {
     /// The model's folder; the installed model by default.
     pub model: Option<PathBuf>,
     pub provider: Provider,
-    /// Loads the model in place of ONNX Runtime's loader ([`load_model`]).
-    pub loader: Option<Loader>,
     /// AI Denoise's Amount for `output` (0–1).
     pub amount: f32,
     /// A JPEG or PNG of the photo with its default settings and AI Denoise at `amount`.
@@ -115,7 +113,7 @@ pub fn command(c: Command) -> Result<()> {
         cache,
         c.provider,
         Arc::new(open_mosaic),
-        c.loader.clone().unwrap_or_else(|| Arc::new(load_model)),
+        Arc::new(load_model),
     );
     let model = c
         .model

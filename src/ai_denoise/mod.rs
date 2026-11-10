@@ -30,14 +30,14 @@ use std::sync::{
 use std::time::Duration;
 
 /// What Develop hears about the photo it asked for.
-pub struct Update {
+pub(crate) struct Update {
     /// The plain image the request was made for: an update for another image (the photo
     /// was replaced, or another one opened) is dropped by the receiver.
     pub plain: std::sync::Weak<CameraImage>,
     pub state: State,
 }
 #[derive(Clone)]
-pub enum State {
+pub(crate) enum State {
     /// Waiting for another job.
     Queued,
     /// Running: the share of tiles done.
@@ -61,19 +61,19 @@ impl std::fmt::Debug for State {
 }
 
 /// Where Develop's updates go.
-pub type Sink = Arc<dyn Fn(Update) + Send + Sync>;
+pub(crate) type Sink = Arc<dyn Fn(Update) + Send + Sync>;
 /// Told the path of a photo whose result was just stored.
-pub type Stored = Arc<dyn Fn(&Path) + Send + Sync>;
+pub(crate) type Stored = Arc<dyn Fn(&Path) + Send + Sync>;
 /// Opens a photo's mosaic for the model (the RAW decoders in the app, a stand-in in tests).
-pub type Source = Arc<dyn Fn(&Path, Cancel<'_>) -> Result<PackedBayer> + Send + Sync>;
+pub(crate) type Source = Arc<dyn Fn(&Path, Cancel<'_>) -> Result<PackedBayer> + Send + Sync>;
 /// Loads the model on a provider (ONNX Runtime in the app, a stand-in in tests).
-pub type Loader =
+pub(crate) type Loader =
     Arc<dyn Fn(&Path, Provider) -> Result<Box<dyn TileModel + Send>, String> + Send + Sync>;
 
 /// One Develop request: the photo, its plain image, the 100% region shown (sensor
 /// pixels) and whether Develop still wants it (cleared when the switch goes off or the
 /// photo closes: a queued job is then dropped; a running one finishes and stores).
-pub struct Request {
+pub(crate) struct Request {
     pub path: PathBuf,
     /// The file as it was before `plain` was decoded from it: a file changed since is
     /// refused, never denoised into another file's image.
@@ -86,8 +86,8 @@ pub struct Request {
 
 /// The cache key of `path` with the model run on `provider`: everything the result
 /// depends on, captured once.
-#[cfg(any(test, feature = "test-support"))]
-pub fn key(path: &Path, provider: Provider) -> Result<String> {
+#[cfg(test)]
+pub(crate) fn key(path: &Path, provider: Provider) -> Result<String> {
     Ok(key_of(&crate::storage::Identity::read(path)?, provider))
 }
 /// The key of a file whose identity is `id`, run on `provider`.
@@ -105,22 +105,17 @@ fn key_of(id: &crate::storage::Identity, provider: Provider) -> String {
 
 /// The installed model, as a Library preview made from its result names it: a result
 /// of another model makes another preview.
-pub fn model_tag() -> String {
+pub(crate) fn model_tag() -> String {
     format!("{}-a{}", &RAWNIND.model.sha256[..16], RAWNIND.version)
 }
 
 /// The key of a finished result of the installed model for the file `file` names, run
 /// on any provider, when `cache` has one: what a Library preview of the photo shows.
-pub fn finished(cache: &AiCache, file: &crate::storage::Identity) -> Option<String> {
-    [
-        Provider::Cpu,
-        Provider::Cuda,
-        Provider::CoreML,
-        Provider::NeuralEngine,
-    ]
-    .into_iter()
-    .map(|provider| key_of(file, provider))
-    .find(|key| cache.contains(key))
+pub(crate) fn finished(cache: &AiCache, file: &crate::storage::Identity) -> Option<String> {
+    [Provider::Cpu, Provider::Cuda, Provider::CoreML]
+        .into_iter()
+        .map(|provider| key_of(file, provider))
+        .find(|key| cache.contains(key))
 }
 
 /// `sink`, handed a result (partial or final) only while the file at `path` is still
@@ -148,7 +143,7 @@ fn deliver(sink: &Sink, update: Update) {
 }
 
 /// Why a photo whose file changed since it was decoded gets no result.
-pub const CHANGED_SINCE_OPENED: &str =
+pub(crate) const CHANGED_SINCE_OPENED: &str =
     "The photo's file changed since it was opened; open it again to use AI Denoise.";
 
 /// A request's inputs, captured once when it is made: the file's identity, the provider
@@ -195,9 +190,8 @@ struct Queue {
     outcomes: HashMap<String, Outcome>,
     /// Export waiters per key: a finished result is kept in memory only for them.
     waiting: HashMap<String, usize>,
-    /// The provider jobs moved to after an accelerator failed ([`fallback`]): the
-    /// failed one is not used again in this session.
-    fallen_to: Option<Provider>,
+    /// The GPU produced a non-finite value: not used again in this session.
+    gpu_off: bool,
     /// The worker is to drop its loaded models (the model is being removed).
     unload: bool,
     /// A worker thread serves the queue. Cleared by a worker leaving it, under the
@@ -230,19 +224,15 @@ impl Drop for Working<'_> {
 
 /// The service; clones share it.
 #[derive(Clone)]
-pub struct Service {
+pub(crate) struct Service {
     shared: Arc<Shared>,
     thread: Arc<Mutex<Option<std::thread::JoinHandle<()>>>>,
 }
 
-/// The provider AI Denoise asks for: CoreML's GPU on Apple Silicon, Macs and iPads
-/// (measured equal to the CPU, docs/rendering-quality.md#ai-denoise), the CPU
-/// elsewhere.
-pub fn preferred_provider() -> Provider {
-    if cfg!(all(
-        any(target_os = "macos", target_os = "ios"),
-        target_arch = "aarch64"
-    )) {
+/// The provider AI Denoise asks for: CoreML's GPU on Apple Silicon (measured equal to
+/// the CPU, docs/rendering-quality.md#ai-denoise), the CPU elsewhere.
+pub(crate) fn preferred_provider() -> Provider {
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
         Provider::CoreML
     } else {
         Provider::Cpu
@@ -267,17 +257,7 @@ fn threads() -> usize {
         .max(2)
 }
 
-/// The installed model in `dir` on `provider`, through ONNX Runtime: the app's loader.
-pub fn load_model(dir: &Path, provider: Provider) -> Result<Box<dyn TileModel + Send>, String> {
-    load_model_with(dir, provider, None)
-}
-
-/// [`load_model`] with CoreML run as `coreml` plans, for measuring.
-pub fn load_model_with(
-    dir: &Path,
-    provider: Provider,
-    coreml: Option<rawmakase_inference::CoreMLPlan>,
-) -> Result<Box<dyn TileModel + Send>, String> {
+fn load_model(dir: &Path, provider: Provider) -> Result<Box<dyn TileModel + Send>, String> {
     let bundled = crate::model_install::runtime_dir();
     let runtime_library = rawmakase_inference::runtime::runtime_file_names()
         .iter()
@@ -289,7 +269,6 @@ pub fn load_model_with(
             runtime_library,
             threads: Some(threads()),
             provider: Some(provider),
-            coreml,
         },
     )
     .map(|d| Box::new(d) as Box<dyn TileModel + Send>)
@@ -298,18 +277,15 @@ pub fn load_model_with(
 
 impl Service {
     /// The app's service: the RAW decoders, ONNX Runtime and `cache`.
-    pub fn new(cache: AiCache) -> Self {
-        Self::with_loader(cache, preferred_provider(), Arc::new(load_model))
+    pub(crate) fn new(cache: AiCache) -> Self {
+        Self::with(
+            cache,
+            preferred_provider(),
+            Arc::new(open_mosaic),
+            Arc::new(load_model),
+        )
     }
-    /// The app's service with the model loaded by `loader` on `provider`, which names
-    /// the results in the cache: an app that runs the model its own way (Safelight on
-    /// the Neural Engine). If the model does not load on `provider`, or a tile comes out
-    /// not finite, the job moves down [`fallback`]'s order (the Neural Engine to CoreML's
-    /// GPU, then the CPU), which `loader` must also load.
-    pub fn with_loader(cache: AiCache, provider: Provider, loader: Loader) -> Self {
-        Self::with(cache, provider, Arc::new(open_mosaic), loader)
-    }
-    pub fn with(cache: AiCache, provider: Provider, source: Source, loader: Loader) -> Self {
+    pub(crate) fn with(cache: AiCache, provider: Provider, source: Source, loader: Loader) -> Self {
         Self {
             shared: Arc::new(Shared {
                 queue: Mutex::default(),
@@ -325,15 +301,15 @@ impl Service {
         }
     }
     /// The installed model's folder, or `None`: jobs then fail with the reason.
-    pub fn set_model(&self, dir: Option<PathBuf>) {
+    pub(crate) fn set_model(&self, dir: Option<PathBuf>) {
         *self.shared.model.lock().unwrap_or_else(|e| e.into_inner()) = dir;
     }
-    pub fn cache(&self) -> &AiCache {
+    pub(crate) fn cache(&self) -> &AiCache {
         &self.shared.cache
     }
     /// Whether a job is queued, running or handing over its result. A running job
     /// finishes even once nobody wants it, so this outlasts the photo it was asked for.
-    pub fn busy(&self) -> bool {
+    pub(crate) fn busy(&self) -> bool {
         let queue = self.queue();
         queue.working || !queue.pending.is_empty()
     }
@@ -341,8 +317,8 @@ impl Service {
         self.shared.queue.lock().unwrap_or_else(|e| e.into_inner())
     }
     fn provider(&self, queue: &Queue) -> Provider {
-        if let Some(fallen) = queue.fallen_to {
-            fallen
+        if queue.gpu_off {
+            Provider::Cpu
         } else {
             self.shared.provider
         }
@@ -469,12 +445,12 @@ impl Service {
     }
     /// Tells `stored` the path of each photo whose result is stored from now on, so
     /// previews shown without one can show it.
-    pub fn on_stored(&self, stored: Stored) {
+    pub(crate) fn on_stored(&self, stored: Stored) {
         *self.shared.stored.lock().unwrap_or_else(|e| e.into_inner()) = Some(stored);
     }
     /// Asks for `request`'s photo in Develop. Its updates follow on its sink; a result
     /// already cached arrives without running anything.
-    pub fn request(&self, request: Request) {
+    pub(crate) fn request(&self, request: Request) {
         let Request {
             path,
             file,
@@ -644,14 +620,8 @@ impl Service {
         let model = match models.entry((model_dir.clone(), job.provider)) {
             std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
             std::collections::hash_map::Entry::Vacant(e) => {
-                let model = (self.shared.loader)(&model_dir, job.provider).map_err(|why| {
-                    // An accelerator that cannot load the model hands the job on.
-                    if job.provider == Provider::Cpu {
-                        anyhow!("The AI Denoise model could not be loaded: {why}")
-                    } else {
-                        anyhow::Error::new(AcceleratorFailed(format!("loading: {why}")))
-                    }
-                })?;
+                let model = (self.shared.loader)(&model_dir, job.provider)
+                    .map_err(|why| anyhow!("The AI Denoise model could not be loaded: {why}"))?;
                 e.insert(model)
             }
         };
@@ -724,7 +694,7 @@ impl Service {
         )
         .map_err(|e| match e {
             InferenceError::OutputInvalid(why) if job.provider != Provider::Cpu => {
-                anyhow::Error::new(AcceleratorFailed(why))
+                anyhow::Error::new(GpuFailed(why))
             }
             e => anyhow!("AI Denoise failed: {e}"),
         })?;
@@ -779,38 +749,35 @@ impl Service {
     fn finish(&self, job: Job, result: Result<Outcome>) {
         let outcome = match result {
             Ok(outcome) => outcome,
-            Err(e) if e.downcast_ref::<AcceleratorFailed>().is_some() => {
-                // Retried on the next provider under its key; the failed one is not
-                // used again.
-                let failed = job.provider;
-                let next = fallback(failed);
+            Err(e) if e.downcast_ref::<GpuFailed>().is_some() => {
+                // Retried on the CPU under the CPU's key; the GPU is not used again.
                 let mut queue = self.queue();
-                queue.fallen_to = Some(next);
+                queue.gpu_off = true;
                 let joined = std::mem::take(&mut queue.joined);
                 queue.running = None;
-                let moved = key_of(&job.identity, next);
+                let cpu = key_of(&job.identity, Provider::Cpu);
                 queue
                     .outcomes
-                    .insert(job.key.clone(), Outcome::Moved(moved.clone()));
+                    .insert(job.key.clone(), Outcome::Moved(cpu.clone()));
                 let mut develop = job.develop;
                 develop.extend(joined);
                 queue.pending.push_front(Job {
-                    key: moved,
-                    provider: next,
+                    key: cpu,
+                    provider: Provider::Cpu,
                     develop,
                     ..job
                 });
-                // Queued jobs on the failed provider move too, under the next one's
-                // keys (their waiters follow), merged where two now name the same result.
+                // Queued jobs move to the CPU too, under the CPU's keys (their waiters
+                // follow), merged where two now name the same result.
                 let pending: Vec<Job> = queue.pending.drain(..).collect();
                 for mut job in pending {
-                    if job.provider == failed {
-                        let moved = key_of(&job.identity, next);
+                    if job.provider != Provider::Cpu {
+                        let cpu = key_of(&job.identity, Provider::Cpu);
                         queue
                             .outcomes
-                            .insert(job.key.clone(), Outcome::Moved(moved.clone()));
-                        job.key = moved;
-                        job.provider = next;
+                            .insert(job.key.clone(), Outcome::Moved(cpu.clone()));
+                        job.key = cpu;
+                        job.provider = Provider::Cpu;
                     }
                     if let Some(same) = queue.pending.iter_mut().find(|j| j.key == job.key) {
                         same.develop.extend(job.develop);
@@ -896,7 +863,7 @@ impl Service {
     /// Lets go of the model before it is removed: no job uses it from now on, the
     /// running one is cancelled, and the worker drops its ONNX sessions between jobs.
     /// Waits for that up to five seconds (a run stops within one cancel poll).
-    pub fn unload(&self) {
+    pub(crate) fn unload(&self) {
         self.set_model(None);
         let alive = self
             .thread
@@ -926,7 +893,7 @@ impl Service {
     /// Stops the worker for good: the stop flag and the running run's cancel flag are
     /// raised, and its thread is handed back for the caller's deadline (the app's
     /// shared one, or [`wait_within`] on the command line). Never joined here.
-    pub fn stop(&self) -> Option<std::thread::JoinHandle<()>> {
+    pub(crate) fn stop(&self) -> Option<std::thread::JoinHandle<()>> {
         {
             let mut queue = self.queue();
             queue.stopped = true;
@@ -1110,25 +1077,15 @@ fn ensure_running(queue: &Queue) -> Result<()> {
     Ok(())
 }
 
-/// An accelerator could not load the model or answered with a value that is not finite:
-/// the attempt is discarded and rerun on the next provider ([`fallback`]).
+/// A non-finite value from a GPU provider: the attempt is discarded and rerun on the CPU.
 #[derive(Debug)]
-struct AcceleratorFailed(String);
-impl std::fmt::Display for AcceleratorFailed {
+struct GpuFailed(String);
+impl std::fmt::Display for GpuFailed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "the accelerator failed: {}", self.0)
+        write!(f, "the GPU produced an invalid result: {}", self.0)
     }
 }
-impl std::error::Error for AcceleratorFailed {}
-
-/// Where a job goes when `failed` fails: the Neural Engine's to CoreML's GPU in single
-/// precision, every other accelerator's to the CPU.
-fn fallback(failed: Provider) -> Provider {
-    match failed {
-        Provider::NeuralEngine => Provider::CoreML,
-        _ => Provider::Cpu,
-    }
-}
+impl std::error::Error for GpuFailed {}
 
 impl AiBase for Service {
     fn get(
@@ -1172,6 +1129,5 @@ mod command_line;
 pub use bench::{Command, command};
 pub use command_line::CommandLine;
 
-/// The stand-in model and photos AI Denoise's tests, and the app's, run with.
-#[cfg(any(test, feature = "test-support"))]
-pub mod tests;
+#[cfg(test)]
+pub(crate) mod tests;

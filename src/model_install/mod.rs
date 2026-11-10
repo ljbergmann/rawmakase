@@ -16,7 +16,7 @@ use std::time::Duration;
 /// "Cancelled", a full disk "the disk is full", anything else its reason. A cancel or
 /// a full disk stops a download at once; other failures may be retried.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum InstallError {
+pub(crate) enum InstallError {
     Cancelled,
     DiskFull,
     Failed(String),
@@ -40,17 +40,17 @@ impl From<String> for InstallError {
 
 /// How much of the model has been fetched, and whether to stop.
 #[derive(Default)]
-pub struct Progress {
+pub(crate) struct Progress {
     done: AtomicU64,
     cancel: AtomicBool,
 }
 impl Progress {
     /// Bytes fetched so far.
-    pub fn fetched(&self) -> u64 {
+    pub(crate) fn fetched(&self) -> u64 {
         self.done.load(Ordering::Relaxed)
     }
     /// Asks the install to stop.
-    pub fn cancel(&self) {
+    pub(crate) fn cancel(&self) {
         self.cancel.store(true, Ordering::Relaxed);
     }
 }
@@ -58,7 +58,7 @@ impl Progress {
 /// One set of model files, installed and removed as a unit: Subject and Background share
 /// one, Sky and AI Denoise each have their own, so none obliges anyone to fetch another's.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Pack {
+pub(crate) enum Pack {
     #[default]
     Subject,
     Sky,
@@ -74,12 +74,12 @@ impl Pack {
             Self::Denoise => denoise_files(),
         }
     }
-    pub fn bytes(self) -> u64 {
+    pub(crate) fn bytes(self) -> u64 {
         self.files().iter().map(|f| f.size_bytes).sum()
     }
     /// Where it is kept: under this computer's own data folder, in a folder named for the
     /// model and its contract version, so a replacement model sits beside it.
-    pub fn dir(self) -> PathBuf {
+    pub(crate) fn dir(self) -> PathBuf {
         let (id, version) = match self {
             Self::Subject => (
                 rawmakase_inference::SUBJECT.id,
@@ -99,21 +99,21 @@ impl Pack {
             .join(format!("{id}-v{version}"))
     }
     /// Whether every file is in place and verified.
-    pub fn is_installed(self) -> bool {
+    pub(crate) fn is_installed(self) -> bool {
         is_installed(&self.dir(), self)
     }
     /// Where the pack is installed (whether or not it is).
-    pub fn installed_dir(self) -> PathBuf {
+    pub(crate) fn installed_dir(self) -> PathBuf {
         self.dir()
     }
     /// The megabytes the drawer quotes.
-    pub fn megabytes(self) -> u64 {
+    pub(crate) fn megabytes(self) -> u64 {
         self.bytes().div_ceil(1_000_000)
     }
 }
 
 /// Where the app looks for a runtime library it did not come with.
-pub fn runtime_dir() -> PathBuf {
+pub(crate) fn runtime_dir() -> PathBuf {
     crate::storage::local_data_dir().join("runtime")
 }
 /// Installed: every file there with its size, and the receipt the installer wrote
@@ -155,7 +155,11 @@ fn has(dir: &Path, file: &ModelFile) -> bool {
 /// only what is missing, and a download that stopped part way is kept to be resumed,
 /// in this session or a later one; the receipt is written once every file has been
 /// checked. One install at a time across running instances: see [`lock`].
-pub fn install(pack: Pack, import: Option<&Path>, progress: &Progress) -> Result<(), InstallError> {
+pub(crate) fn install(
+    pack: Pack,
+    import: Option<&Path>,
+    progress: &Progress,
+) -> Result<(), InstallError> {
     let dir = pack.dir();
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("could not create {}: {e}", dir.display()))?;

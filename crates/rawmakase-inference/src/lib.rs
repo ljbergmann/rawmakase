@@ -28,5 +28,5 @@ pub use manifest::{
 pub use process::{Coverage, Point, Prompt, RgbImage};
 pub use runtime::{
     Analysis, CoreMLFormat, CoreMLPlan, CoreMLUnits, Denoiser, Embedding, LoadOptions, Provider,
-    RUNTIME_ENV, Session, Sky, SkySession, Subject,
+    RUNTIME_ENV, Session, Sky, SkySession, Subject, measure_with_coreml,
 };

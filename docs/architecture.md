@@ -29,11 +29,9 @@ flowchart TD
     ctl[rawmakase-ctl]
     remote[rawmakase-remote]
     inference[rawmakase-inference]
-    ai[rawmakase-ai]
 
     app --> export & decode & catalog & engine & interop & model
-    app --> ctl & remote & inference & fs & ai
-    ai --> decode & inference
+    app --> ctl & remote & inference & fs
     export --> decode & engine & interop
     decode --> engine & raw
     catalog --> interop & fs
@@ -52,7 +50,6 @@ on it directly.)
 | --- | --- | --- |
 | `rawmakase-model` | What an edit is, as values: the recipe and its settings, camera and lens profiles, colour primitives, DNG hints, output buffers, file identity and storage helpers | The RAW decoders, the renderer, wgpu, the GUI |
 | `rawmakase-interop` | The file formats and presets over the model: XMP, Lightroom's Develop settings, presets, raw defaults, EXIF and JPEG, export settings, and which edit a photo develops with (`edits`) | The same |
-| `rawmakase-ai` | AI Denoise's service (`ai_denoise`), the model installer (`model_install`) and what a Subject, Background or Sky selection is given and records (`selection`: the input's size, the models' provenance, the input and prompt keys), shared by the app, its command line and other front ends | The catalog, export, the GUI |
 | `rawmakase-catalog` | The SQLite catalog, Lightroom catalog import, file operations, and the stored edit records `edits` resolves | The same |
 | `rawmakase-engine` | The renderer (`develop`): the CPU pipeline, which is the reference, and the GPU preview port | The RAW decoders, the catalog, the GUI |
 | `rawmakase-raw` | RAWmakase's own RAW decoders ([RAW decoding](raw-decoding.md)) | Everything but `rawmakase-tiff` and `rawmakase-cancel` |
@@ -116,8 +113,8 @@ between top-level modules (see [boundaries](#boundaries-to-preserve)).
 | `platform` | OS integration: the Linux GVFS filesystem bridge, drives, the file manager, the browser, the system Trash file operations get (`trash::SystemTrash`, failing closed, and whether a drive has one; no policy), and the display's color management (macOS surface tagging and EDR, the Windows display profile), and whether a RAW on a network volume is read for its embedded preview alone (`preview_reads`) | `network.rs`, `volume.rs`, `reveal.rs`, `web.rs`, `trash.rs`, `display.rs`, `preview_reads.rs` |
 | `diagnostics` | The system report a bug report asks for (Report an Issue…, `rawmakase system-info`): this build, the system probed once per process and what the window knew, as plain snapshots, with no path, user, file, catalog or profile name | `diagnostics.rs` |
 | `updates` | Release checks and self-update through fastframe-update; the notice itself is in `app` | `updates.rs` |
-| `ai_denoise` | AI Denoise's service, shared by the desktop app and the command line: the queue, the worker and its ONNX session, job keys, the finished-result lookup, `AiBase` for export; `CommandLine` for `render` and `render-batch`, and the `rawmakase denoise` development command. No egui and no `app`: the open photo's result and the Loupe's loader are `app::develop::ai_denoise`'s, and the app passes the user's cache in. In `crates/rawmakase-ai`, which the app re-exports | `mod.rs`, `command_line.rs`, `bench.rs` |
-| `model_install` | Installing the model packs (Select Subject's, Sky's, AI Denoise's): their folders, the receipt of checked files, downloads that resume, the lock across instances, and the runtime folder; the threads and the drawer are `app`'s. In `crates/rawmakase-ai`, which the app re-exports | `mod.rs` |
+| `ai_denoise` | AI Denoise's service, shared by the desktop app and the command line: the queue, the worker and its ONNX session, job keys, the finished-result lookup, `AiBase` for export; `CommandLine` for `render` and `render-batch`, and the `rawmakase denoise` development command. No egui and no `app`: the open photo's result and the Loupe's loader are `app::develop::ai_denoise`'s, and the app passes the user's cache in | `mod.rs`, `command_line.rs`, `bench.rs` |
+| `model_install` | Installing the model packs (Select Subject's, Sky's, AI Denoise's): their folders, the receipt of checked files, downloads that resume, the lock across instances, and the runtime folder; the threads and the drawer are `app`'s | `mod.rs` |
 | `lensfun_install` | Downloading, checking, publishing and removing Lensfun's lens database on request (never bundled, never fetched unasked); reading it is `lens::lensfun::installed`'s, the panels and the job thread are `app`'s | `lensfun_install.rs` |
 | `comparison` | Reproducible reference-image comparisons using the same develop APIs | `comparison.rs` |
 
@@ -245,7 +242,7 @@ full-quality CPU stages check cancellation within pixel, row and column work.
 
 ### AI Denoise
 
-AI Denoise ([rendering quality](rendering-quality.md#ai-denoise)) has one service, `ai_denoise::Service` (in `crates/rawmakase-ai`, so the command line and other front ends use it without the app): one
+AI Denoise ([rendering quality](rendering-quality.md#ai-denoise)) has one service, `ai_denoise::Service` (a root module, so the command line uses it without the app): one
 queue and one worker thread for Develop, export and the CLI (one service per
 command, so `render-batch` loads the model once, with the user's cache in the folder
 Preferences chose, as the app keeps it). A job's
@@ -532,7 +529,7 @@ The library API is internal: the RAWmakase binary, its examples and its tests ar
 its only clients, so modules and functions change freely with them and nothing is
 kept for outside callers. `src/lib.rs` exports only the modules they use; the rest
 (`catalog_session`, `decode`, `demosaic`, `edit_session`, `platform`, `time`)
-are `pub(crate)` (`model_install` as a re-export of its crate), and the desktop app exposes only `app::run`, so the
+are `pub(crate)`, and the desktop app exposes only `app::run`, so the
 compiler reports what in them nothing uses. The compatibility surface is the saved data: recipe and
 preset envelopes are versioned and migrated by `model::saved_format` (written as
 version 11, which releases before the one engine refuse, 12 for a recipe naming a
