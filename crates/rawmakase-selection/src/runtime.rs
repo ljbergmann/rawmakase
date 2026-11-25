@@ -206,6 +206,26 @@ impl SkySession {
     }
 }
 
+/// [`SkySession::select`]'s last step, for an app that runs the sky model its own way
+/// (on the Neural Engine, say): the sky's coverage in `image`'s frame from the model's
+/// two answers for an input of `width` x `height` ([`sky_input_size`]), the sky's
+/// probability at each pixel and its class scores ([`SKY`]'s `logits`, shaped as the
+/// model gives them).
+pub fn sky_from_answers(
+    image: &RgbImage,
+    probability: &[f32],
+    width: usize,
+    height: usize,
+    logit_shape: &[i64],
+    logits: &[f32],
+    cancel: Cancel<'_>,
+) -> Result<Coverage, InferenceError> {
+    let (classes, grid_width, grid_height) = logits_grid(logit_shape, width, height)?;
+    let kinds = kinds::kinds(logits, classes, grid_width, grid_height)?;
+    auto::sky_with_modes(image, probability, width, height, &kinds, cancel)
+        .map(|(coverage, _)| coverage)
+}
+
 /// The classes and grid of the sky model's class scores for an input of `width` x
 /// `height`: one image, on a grid a quarter of the input's sides.
 fn logits_grid(
@@ -689,6 +709,26 @@ fn panoptic_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_sky_answer_from_elsewhere_must_have_the_models_grid() {
+        let image = RgbImage {
+            width: 8,
+            height: 8,
+            data: vec![0; 8 * 8 * 3],
+        };
+        let probability = vec![0.; 8 * 8];
+        let wrong = sky_from_answers(
+            &image,
+            &probability,
+            8,
+            8,
+            &[1, 150, 3, 2],
+            &[0.; 900],
+            Cancel::NEVER,
+        );
+        assert!(wrong.is_err());
+    }
 
     #[test]
     fn the_panoptic_model_is_fed_the_long_edge_with_the_proportions_kept() {
