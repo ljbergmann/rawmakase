@@ -160,8 +160,9 @@ impl Own {
     }
     /// The visible area of sensor data that is not a mosaic (small RAWs'
     /// RGB, linear raw DNGs), developed: each channel (raw − black) / (white − black), white
-    /// balanced by `wb` unless the camera stored it balanced; with `half`,
-    /// RGB is averaged over each 2 × 2 block ([`super::develop_rgb_half`]).
+    /// balanced by `wb` unless the camera stored it balanced; with `half`, RGB
+    /// larger than [`super::HALF_RGB_PIXELS`] is averaged over each 2 × 2 block
+    /// ([`super::develop_rgb_half`]).
     /// A monochrome DNG's one sample is every channel's, not white balanced,
     /// at full size. `None` for a mosaic.
     pub(super) fn rgb(
@@ -196,7 +197,7 @@ impl Own {
         let [left, top, w, h] = s.area.map(|v| v as usize);
         let wb = if self.info.balanced { [1.; 3] } else { wb };
         let channels = s.channels as usize;
-        let half = half && w >= 2 && h >= 2;
+        let half = half && w >= 2 && h >= 2 && (w * h) as u64 > super::HALF_RGB_PIXELS;
         let pixels = match &s.data {
             SensorData::U16(d) if half => {
                 let rows = visible_rows(d, &s, [left, top, w, h]);

@@ -468,9 +468,10 @@ impl Raw {
         Ok(crate::ai::denoise::PackedBayer::pack(w, h, &data, [0, 0]))
     }
     pub fn develop(mut self, decode: Decode, cancel: Cancel<'_>) -> Result<CameraImage> {
-        // RGB sensor data (small RAWs, linear raw DNGs) is halved by averaging
-        // each 2 × 2 block in the reduced mode, as a mosaic's half decode is
-        // reduced: a merged panorama's full size can be gigabytes of floats.
+        // RGB sensor data (small RAWs, linear raw DNGs) beyond HALF_RGB_PIXELS
+        // is halved by averaging each 2 × 2 block in the reduced mode, as a
+        // mosaic's half decode is reduced: a merged panorama's full size can be
+        // gigabytes of floats. Smaller RGB develops at full size in both modes.
         let half = decode == Decode::Half;
         if let Some((width, height, pixels)) = self.own.rgb(self.metadata.wb, half, cancel)? {
             ensure!(!cancel.is_cancelled(), "Development cancelled");
@@ -575,6 +576,10 @@ pub(crate) fn develop_rgb<T: Copy + Into<f32> + Sync>(
         })
         .collect()
 }
+/// RGB sensor data larger than this many pixels develops at half size in the
+/// reduced mode: 100 megapixels, 1.2 GB as floats. Merged panoramas pass it; a
+/// camera's RAW or an HDR merge of one does not.
+pub(crate) const HALF_RGB_PIXELS: u64 = 100_000_000;
 /// [`develop_rgb`] at half size: each 2 × 2 block of pixels developed and
 /// averaged, a last odd row or column left out, as a mosaic's half decode
 /// leaves it. Never holds the full-size pixels.
