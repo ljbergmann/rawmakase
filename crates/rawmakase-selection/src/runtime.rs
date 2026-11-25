@@ -228,8 +228,9 @@ fn logits_grid(
 }
 
 /// What the sky model is fed for a photo of `width` x `height`: scaled to the long edge,
-/// its proportions kept, unless that would leave a side too short for the network.
-fn sky_input_size(width: usize, height: usize) -> (usize, usize) {
+/// its proportions kept, unless that would leave a side too short for the network. Public
+/// for an app that runs the model its own way, at the same size.
+pub fn sky_input_size(width: usize, height: usize) -> (usize, usize) {
     let scale = SKY.long_edge as f64 / width.max(height) as f64;
     let side = |v: usize| ((v as f64 * scale).round() as usize).max(SKY.min_side);
     (side(width), side(height))
@@ -242,6 +243,39 @@ pub struct Embedding {
     image: RgbImage,
 }
 impl Embedding {
+    /// The image encoder's three outputs for `image`, each a shape and its values, as an
+    /// app that runs the encoder its own way has them; checked as [`Session::embed`]'s.
+    pub fn from_features(
+        features: Vec<(Vec<i64>, Vec<f32>)>,
+        image: RgbImage,
+    ) -> Result<Self, InferenceError> {
+        let mut checked = Vec::with_capacity(3);
+        for (shape, data) in features {
+            let dims: Option<[usize; 4]> = (shape.len() == 4 && shape[0] == 1)
+                .then(|| {
+                    let mut dims = [0usize; 4];
+                    for (out, d) in dims.iter_mut().zip(&shape) {
+                        *out = usize::try_from(*d).ok()?;
+                    }
+                    Some(dims)
+                })
+                .flatten();
+            let count = dims.and_then(|d| d.iter().try_fold(1usize, |n, d| n.checked_mul(*d)));
+            match dims {
+                Some(dims) if count == Some(data.len()) => checked.push((dims, data)),
+                _ => {
+                    return Err(InferenceError::OutputInvalid(format!(
+                        "an encoder output has shape {shape:?}"
+                    )));
+                }
+            }
+        }
+        let features: [([usize; 4], Vec<f32>); 3] = checked
+            .try_into()
+            .map_err(|_| InferenceError::ModelInvalid("the encoder outputs changed".into()))?;
+        Ok(Embedding { features, image })
+    }
+
     /// Bytes held.
     pub fn bytes(&self) -> usize {
         self.features
@@ -370,7 +404,18 @@ impl Session {
                 (embedding, labels)
             })
         };
-        let (embedding, labels) = (embedding?, labels?);
+        self.analyze_from(embedding?, labels?, cancel)
+    }
+
+    /// [`Session::analyze`] from an embedding and the panoptic model's labels computed
+    /// elsewhere (an app that runs those networks its own way): SAM 2's outline of each
+    /// person and animal, by this session's decoder.
+    pub fn analyze_from(
+        &mut self,
+        embedding: Embedding,
+        labels: Labels,
+        cancel: Cancel<'_>,
+    ) -> Result<Analysis, InferenceError> {
         let side = self.spec.mask_size;
         debug_assert_eq!(side, SIDE);
         let candidates = |decoded: &Decoded| -> Vec<Vec<bool>> {
@@ -550,6 +595,42 @@ fn embed_with(
 }
 
 /// Where the photo's people and animals are, on the [`SIDE`] grid.
+/// What the panoptic model is fed for a photo of `width` x `height`: scaled to its long
+/// edge, the proportions kept, as [`panoptic_with`] feeds it. For an app that runs the
+/// model its own way.
+pub fn panoptic_input_size(width: usize, height: usize) -> (usize, usize) {
+    let scale = PANOPTIC.long_edge as f64 / width.max(height) as f64;
+    let side = |v: usize| ((v as f64 * scale).round() as usize).max(1);
+    (side(width), side(height))
+}
+
+/// The people and animals in the panoptic model's answer: its class logits
+/// (`[1, queries, classes]`) and mask logits (`[1, queries, height, width]`), read as
+/// [`panoptic_with`] reads them. For an app that runs the model its own way.
+pub fn panoptic_labels(
+    logit_shape: &[i64],
+    logits: &[f32],
+    mask_shape: &[i64],
+    masks: &[f32],
+) -> Result<Labels, InferenceError> {
+    if logit_shape.len() != 3 || mask_shape.len() != 4 || logit_shape[0] != 1 || mask_shape[0] != 1
+    {
+        return Err(InferenceError::OutputInvalid(format!(
+            "the panoptic output shapes are {logit_shape:?} and {mask_shape:?}"
+        )));
+    }
+    let dim = |v: i64| usize::try_from(v).unwrap_or(0);
+    panoptic::decode(
+        &PANOPTIC,
+        logits,
+        masks,
+        dim(logit_shape[1]),
+        dim(logit_shape[2]),
+        dim(mask_shape[3]),
+        dim(mask_shape[2]),
+    )
+}
+
 fn panoptic_with(
     network: &mut OrtSession,
     image: &RgbImage,
@@ -608,6 +689,37 @@ fn panoptic_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_panoptic_model_is_fed_the_long_edge_with_the_proportions_kept() {
+        assert_eq!(panoptic_input_size(1600, 1067), (800, 534));
+        assert_eq!(panoptic_input_size(768, 1024), (600, 800));
+        assert_eq!(panoptic_input_size(10, 4000), (2, 800));
+    }
+
+    #[test]
+    fn an_embedding_from_elsewhere_must_have_the_encoders_shapes() {
+        let image = RgbImage {
+            width: 1,
+            height: 1,
+            data: vec![0, 0, 0],
+        };
+        let good = || {
+            vec![
+                (vec![1, 2, 2, 2], vec![0.; 8]),
+                (vec![1, 1, 2, 2], vec![0.; 4]),
+                (vec![1, 1, 1, 1], vec![0.; 1]),
+            ]
+        };
+        assert!(Embedding::from_features(good(), image.clone()).is_ok());
+        let mut short = good();
+        short[1].1.pop();
+        assert!(Embedding::from_features(short, image.clone()).is_err());
+        let mut batch = good();
+        batch[0].0[0] = 2;
+        assert!(Embedding::from_features(batch, image.clone()).is_err());
+        assert!(Embedding::from_features(good()[..2].to_vec(), image).is_err());
+    }
 
     #[test]
     fn the_sky_class_scores_are_one_image_on_a_quarter_grid() {
